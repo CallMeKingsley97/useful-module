@@ -22,7 +22,7 @@ export default async function (ctx) {
   const now = new Date();
   // 支持 "2000-01-01" 这种简单的 YYYY-MM-DD 格式，在 JS 里会自动按 UTC 时区或本地时区解析为对应的日期（此处不影响相差的天数计算准确度）
   const birthDate = new Date(birthDateStr);
-  
+
   // 容错：如果出生日期无效，使用默认基准
   if (isNaN(birthDate.getTime())) {
     return {
@@ -42,7 +42,7 @@ export default async function (ctx) {
   const diffMs = now - birthDate;
   // 计算已经度过的天数，取正值
   const passedDays = Math.max(0, Math.floor(diffMs / 86400000));
-  
+
   // 计算剩余天数，如果超过预期寿命，剩余天数为0
   const remainingDays = Math.max(0, lifeExpectancyDays - passedDays);
 
@@ -144,7 +144,7 @@ export default async function (ctx) {
             children: [
               {
                 type: "text",
-                text: "剩余约定",
+                text: "剩余天数",
                 font: { size: "caption1" },
                 textColor: "#FFFFFFCC",
               },
