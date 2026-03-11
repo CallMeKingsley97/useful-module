@@ -1,0 +1,17 @@
+name: "Star-History 面板"
+description: "显示 GitHub 仓库实时 Star 数量并可切换查看星标历史图"
+author: "kingsley"
+scriptings:
+# GitHub Star-History 面板
+# env:
+#   GITHUB_REPO - 需要追踪的仓库路径，必填，例如 "vuejs/vue" 或完整链接 "https://github.com/vuejs/vue"
+#   TITLE       - 自定义标题，可选，默认显示仓库名
+#   CHART_COLOR - 面板高亮色，默认 "#E36209" (Star-History 品牌橙色)
+- generic:
+    name: Star-History
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/github-stars.js
+    timeout: 10
+
+widgets:
+- name: Star-History 面板
+  script_name: Star-History
