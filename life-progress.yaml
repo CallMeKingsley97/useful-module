@@ -1,6 +1,6 @@
 name: "人生进度"
 description: "计算人生已过去的天数和剩余天数"
-author: "Antigravity"
+author: "kingsley"
 scriptings:
 # 人生进度小组件
 # env:
