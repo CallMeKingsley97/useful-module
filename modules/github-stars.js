@@ -43,9 +43,7 @@ export default async function (ctx) {
       baseHeaders["Authorization"] = `token ${GITHUB_TOKEN}`;
     }
 
-    const repoInfoReq = await ctx.http.request({
-      method: "GET",
-      url: `https://api.github.com/repos/${repo}`,
+    const repoInfoReq = await ctx.http.get(`https://api.github.com/repos/${repo}`, {
       headers: baseHeaders
     });
 
@@ -61,9 +59,7 @@ export default async function (ctx) {
       starRecords = [{ count: 0, date: new Date().toISOString() }];
       chartLoaded = true;
     } else {
-      const firstPageReq = await ctx.http.request({
-        method: "GET",
-        url: `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=1`,
+      const firstPageReq = await ctx.http.get(`https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=1`, {
         headers: baseHeaders
       });
 
@@ -101,15 +97,21 @@ export default async function (ctx) {
         // 【 步骤 4 】并发 Promise.all 获取指定页的第一位点兵（抽样）
         const concurrentPromises = requestPages.map(page => {
            // 并发请求不需要 await，我们收集 promise 数组
-           return ctx.http.request({
-            method: "GET",
-            url: `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=${page}`,
+           return ctx.http.get(`https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=${page}`, {
             headers: baseHeaders
-          }).then(req => ({
-             page: page,
-             status: req.status,
-             dataRaw: req.body // 将在下一个 await 解析 json，Egern ctx API 有时会返回 string
-          }));
+          }).then(async (req) => {
+             let parsedData;
+             if (req.status === 200) {
+               try {
+                 parsedData = await req.json();
+               } catch(e) { }
+             }
+             return {
+               page: page,
+               status: req.status,
+               parsedData: parsedData
+             };
+          });
         });
         
         const resArray = await Promise.all(concurrentPromises);
@@ -118,10 +120,7 @@ export default async function (ctx) {
         starRecords = [];
         for (const res of resArray) {
            if (res.status === 200) {
-             let parsedData;
-             try {
-                parsedData = JSON.parse(res.dataRaw);
-             } catch(e) { /* 解析失败则跳过 */ }
+             let parsedData = res.parsedData;
              
              if (parsedData && parsedData.length > 0) {
                const firstStargazer = parsedData[0];
