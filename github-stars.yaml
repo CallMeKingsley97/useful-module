@@ -10,7 +10,7 @@ scriptings:
 - generic:
     name: Star-History
     script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/github-stars.js
-    timeout: 5
+    timeout: 30
 
 widgets:
 - name: Star-History 面板
