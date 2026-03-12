@@ -23,6 +23,12 @@ scriptings:
 # │                                                     │
 # │ TITLE (可选，默认 "GitHub Stars")                     │
 # │   小组件顶部标题文本                                  │
+# │                                                     │
+# │ REFRESH_MINUTES (可选，默认 10)                      │
+# │   自动刷新间隔（分钟），避免频繁请求                  │
+# │                                                     │
+# │ FORCE_REFRESH (可选，默认 false)                     │
+# │   设为 true 时忽略缓存，手动刷新立即拉取              │
 # └─────────────────────────────────────────────────────┘
 - generic:
     name: github-stars

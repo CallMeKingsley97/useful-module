@@ -3,7 +3,7 @@
 // 科技感暗黑 UI，支持多种小组件尺寸
 
 var CACHE_KEY = "gh_stars_multi";
-var CACHE_TTL = 10 * 60 * 1000; // 10 分钟缓存
+var DEFAULT_REFRESH_MINUTES = 10;
 
 export default async function (ctx) {
   var env = ctx.env || {};
@@ -12,6 +12,9 @@ export default async function (ctx) {
   var token = (env.GITHUB_TOKEN || "").trim();
   var accent = env.ACCENT_COLOR || "#58A6FF";
   var title = env.TITLE || "GitHub Stars";
+  var refreshMinutes = clampNumber(env.REFRESH_MINUTES || DEFAULT_REFRESH_MINUTES, 1, 1440);
+  var refreshIntervalMs = refreshMinutes * 60 * 1000;
+  var forceRefresh = isTrue(env.FORCE_REFRESH);
 
   // 解析仓库列表
   var repos = parseRepos(reposRaw);
@@ -22,36 +25,43 @@ export default async function (ctx) {
   // 尝试缓存优先
   var cached = loadCache(ctx);
   var data = null;
+  var now = Date.now();
+  var cacheReady = cached && cached.repos && cached.repos.length > 0;
+  var cacheFresh = cacheReady && cached.ts && (now - cached.ts < refreshIntervalMs);
+  var useCacheOnly = cacheFresh && !forceRefresh;
+  var fetched = false;
 
-  if (cached && cached.repos && cached.repos.length > 0) {
+  if (useCacheOnly) {
     data = cached;
-  }
-
-  // 拉取最新数据
-  try {
-    var freshData = await fetchAllRepos(ctx, repos, token);
-    data = { repos: freshData, ts: Date.now() };
-    saveCache(ctx, data);
-  } catch (e) {
-    console.log("fetch error: " + safeMsg(e));
-    if (!data) {
-      return errorWidget("获取失败", safeMsg(e));
+  } else {
+    // 拉取最新数据
+    try {
+      var freshData = await fetchAllRepos(ctx, repos, token);
+      data = { repos: freshData, ts: Date.now() };
+      saveCache(ctx, data);
+      fetched = true;
+    } catch (e) {
+      console.log("fetch error: " + safeMsg(e));
+      if (cacheReady) {
+        data = cached;
+      } else {
+        return errorWidget("获取失败", safeMsg(e));
+      }
     }
   }
 
   var repoList = data.repos || [];
-  var stale = data.ts && (Date.now() - data.ts > CACHE_TTL);
-
-  // 刷新时间：15 分钟后
-  var refreshAfter = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  var status = fetched ? "live" : "cached";
+  now = Date.now();
+  var refreshAfter = new Date(now + refreshIntervalMs).toISOString();
 
   // 根据 widgetFamily 选择布局
   if (family === "accessoryCircular") return buildCircular(repoList, accent);
   if (family === "accessoryRectangular") return buildRectangular(repoList, accent);
   if (family === "accessoryInline") return buildInline(repoList);
-  if (family === "systemSmall") return buildSmall(repoList, title, accent, refreshAfter, stale);
-  if (family === "systemLarge") return buildLarge(repoList, title, accent, refreshAfter, stale);
-  return buildMedium(repoList, title, accent, refreshAfter, stale);
+  if (family === "systemSmall") return buildSmall(repoList, title, accent, refreshAfter, status);
+  if (family === "systemLarge") return buildLarge(repoList, title, accent, refreshAfter, status);
+  return buildMedium(repoList, title, accent, refreshAfter, status);
 }
 
 // ============== 数据层 ==============
@@ -87,7 +97,7 @@ async function fetchAllRepos(ctx, repos, token) {
 
 // ============== 各布局构建 ==============
 
-function buildMedium(repos, title, accent, refreshAfter, stale) {
+function buildMedium(repos, title, accent, refreshAfter, status) {
   // 取前 4 个仓库，分左右两列
   var items = repos.slice(0, 8);
   var half = Math.ceil(items.length / 2);
@@ -105,11 +115,11 @@ function buildMedium(repos, title, accent, refreshAfter, stale) {
       vstack(right.map(function (r) { return repoRow(r, accent, false); }), { gap: 6, flex: 1 })
     ], { gap: 8, alignItems: "start" }),
     sp(),
-    footer(stale)
+    footer(status)
   ], refreshAfter);
 }
 
-function buildSmall(repos, title, accent, refreshAfter, stale) {
+function buildSmall(repos, title, accent, refreshAfter, status) {
   var items = repos.slice(0, 4);
   return shell([
     header(title, accent, false),
@@ -118,11 +128,11 @@ function buildSmall(repos, title, accent, refreshAfter, stale) {
     sp(),
     vstack(items.map(function (r) { return repoRow(r, accent, true); }), { gap: 5 }),
     sp(),
-    footer(stale)
+    footer(status)
   ], refreshAfter, [12, 14, 10, 14]);
 }
 
-function buildLarge(repos, title, accent, refreshAfter, stale) {
+function buildLarge(repos, title, accent, refreshAfter, status) {
   // 顶部展示前 2 个仓库卡片，下面用列表展示剩余仓库
   var featured = repos.slice(0, 2);
   var rest = repos.slice(2, 10);
@@ -145,7 +155,7 @@ function buildLarge(repos, title, accent, refreshAfter, stale) {
   }
 
   children.push(sp());
-  children.push(footer(stale));
+  children.push(footer(status));
 
   return shell(children, refreshAfter, [14, 16, 10, 16]);
 }
@@ -291,7 +301,8 @@ function header(title, accent, showTime) {
   return hstack(children, { gap: 5 });
 }
 
-function footer(stale) {
+function footer(status) {
+  var isLive = status === "live";
   return hstack([
     icon("clock.arrow.circlepath", 8, "rgba(255,255,255,0.25)"),
     {
@@ -302,7 +313,7 @@ function footer(stale) {
       textColor: "rgba(255,255,255,0.25)"
     },
     sp(),
-    txt(stale ? "cached" : "live", 8, "medium", stale ? "#FFC10766" : "#3FB95066")
+    txt(isLive ? "live" : "cached", 8, "medium", isLive ? "#3FB95066" : "#FFC10766")
   ], { gap: 3 });
 }
 
@@ -368,6 +379,19 @@ function parseRepos(raw) {
     var parts = s.split("/");
     return parts.length >= 2 ? parts[0] + "/" + parts[1] : "";
   }).filter(function (s) { return s.length > 0; });
+}
+
+function clampNumber(val, min, max) {
+  var n = parseInt(val, 10);
+  if (!isFinite(n)) n = min;
+  if (n < min) n = min;
+  if (n > max) n = max;
+  return n;
+}
+
+function isTrue(val) {
+  var v = String(val || "").toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "y" || v === "on";
 }
 
 function formatNumber(n) {

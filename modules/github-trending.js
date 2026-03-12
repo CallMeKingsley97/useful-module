@@ -2,7 +2,7 @@
 // 特性：榜单抓取 + 语言筛选 + 多尺寸布局 + 缓存 + 失败降级
 
 var CACHE_KEY = "gh_trending_cache";
-var CACHE_TTL = 30 * 60 * 1000; // 30 分钟缓存
+var DEFAULT_REFRESH_MINUTES = 10;
 
 export default async function (ctx) {
     var env = ctx.env || {};
@@ -14,29 +14,41 @@ export default async function (ctx) {
     var spoken = (env.SPOKEN_LANGUAGE || "").trim();
     var limit = clampNumber(env.LIMIT || 8, 1, 20);
     var token = (env.GITHUB_TOKEN || "").trim();
+    var refreshMinutes = clampNumber(env.REFRESH_MINUTES || DEFAULT_REFRESH_MINUTES, 1, 1440);
+    var refreshIntervalMs = refreshMinutes * 60 * 1000;
+    var forceRefresh = isTrue(env.FORCE_REFRESH);
 
     // 读取缓存
     var cached = loadCache(ctx);
     var data = null;
-    if (cached && cached.items && cached.items.length > 0) {
-        data = cached;
-    }
+    var now = Date.now();
+    var cacheReady = cached && cached.items && cached.items.length > 0;
+    var cacheFresh = cacheReady && cached.ts && (now - cached.ts < refreshIntervalMs);
+    var useCacheOnly = cacheFresh && !forceRefresh;
+    var fetched = false;
 
-    // 拉取最新数据
-    try {
-        var result = await fetchTrending(ctx, {
-            language: language,
-            since: since,
-            spoken: spoken,
-            limit: limit,
-            token: token
-        });
-        data = { items: result.items, ts: Date.now(), source: result.source };
-        saveCache(ctx, data);
-    } catch (e) {
-        console.log("trending fetch error: " + safeMsg(e));
-        if (!data) {
-            return errorWidget("获取失败", safeMsg(e));
+    if (useCacheOnly) {
+        data = cached;
+    } else {
+        // 拉取最新数据
+        try {
+            var result = await fetchTrending(ctx, {
+                language: language,
+                since: since,
+                spoken: spoken,
+                limit: limit,
+                token: token
+            });
+            data = { items: result.items, ts: Date.now(), source: result.source };
+            saveCache(ctx, data);
+            fetched = true;
+        } catch (e) {
+            console.log("trending fetch error: " + safeMsg(e));
+            if (cacheReady) {
+                data = cached;
+            } else {
+                return errorWidget("获取失败", safeMsg(e));
+            }
         }
     }
 
@@ -45,17 +57,18 @@ export default async function (ctx) {
         return errorWidget("暂无数据", "未解析到热门仓库");
     }
 
-    var refreshAfter = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-    var stale = data.ts && (Date.now() - data.ts > CACHE_TTL);
+    now = Date.now();
+    var refreshAfter = new Date(now + refreshIntervalMs).toISOString();
+    var status = fetched ? "live" : "cached";
     var sinceLabel = sinceLabelText(since);
     var source = data.source || "trending";
 
     if (family === "accessoryCircular") return buildCircular(repoList, accent);
     if (family === "accessoryRectangular") return buildRectangular(repoList, accent, sinceLabel);
     if (family === "accessoryInline") return buildInline(repoList, accent);
-    if (family === "systemSmall") return buildSmall(repoList, title, accent, sinceLabel, refreshAfter, stale, source);
-    if (family === "systemLarge") return buildLarge(repoList, title, accent, sinceLabel, refreshAfter, stale, source);
-    return buildMedium(repoList, title, accent, sinceLabel, refreshAfter, stale, source);
+    if (family === "systemSmall") return buildSmall(repoList, title, accent, sinceLabel, refreshAfter, status, source);
+    if (family === "systemLarge") return buildLarge(repoList, title, accent, sinceLabel, refreshAfter, status, source);
+    return buildMedium(repoList, title, accent, sinceLabel, refreshAfter, status, source);
 }
 
 // ============== 数据层 ==============
@@ -166,7 +179,7 @@ function buildTrendingUrl(language, since, spoken) {
 
 // ============== 各布局构建 ==============
 
-function buildMedium(repos, title, accent, sinceLabel, refreshAfter, stale, source) {
+function buildMedium(repos, title, accent, sinceLabel, refreshAfter, status, source) {
     var items = repos.slice(0, 6);
     return shell([
         header(title, accent, sinceLabel, true),
@@ -175,11 +188,11 @@ function buildMedium(repos, title, accent, sinceLabel, refreshAfter, stale, sour
         sp(6),
         vstack(items.map(function (r) { return repoRow(r, accent, false); }), { gap: 6 }),
         sp(),
-        footer(stale, source)
+        footer(status, source)
     ], refreshAfter);
 }
 
-function buildSmall(repos, title, accent, sinceLabel, refreshAfter, stale, source) {
+function buildSmall(repos, title, accent, sinceLabel, refreshAfter, status, source) {
     var items = repos.slice(0, 3);
     return shell([
         header(title, accent, sinceLabel, false),
@@ -188,11 +201,11 @@ function buildSmall(repos, title, accent, sinceLabel, refreshAfter, stale, sourc
         sp(),
         vstack(items.map(function (r) { return repoRow(r, accent, true); }), { gap: 5 }),
         sp(),
-        footer(stale, source)
-    ], refreshAfter, [12, 14, 10, 14]);
+        footer(status, source)
+    ], refreshAfter, [14, 16, 12, 16]);
 }
 
-function buildLarge(repos, title, accent, sinceLabel, refreshAfter, stale, source) {
+function buildLarge(repos, title, accent, sinceLabel, refreshAfter, status, source) {
     var featured = repos.slice(0, 3);
     var rest = repos.slice(3, 10);
 
@@ -216,9 +229,9 @@ function buildLarge(repos, title, accent, sinceLabel, refreshAfter, stale, sourc
     }
 
     children.push(sp());
-    children.push(footer(stale, source));
+    children.push(footer(status, source));
 
-    return shell(children, refreshAfter, [14, 16, 10, 16]);
+    return shell(children, refreshAfter, [16, 18, 12, 18]);
 }
 
 function buildCircular(repos, accent) {
@@ -318,7 +331,7 @@ function shell(children, refreshAfter, padding) {
     return {
         type: "widget",
         gap: 0,
-        padding: padding || [12, 14, 10, 14],
+        padding: padding || [14, 16, 12, 16],
         backgroundGradient: {
             type: "linear",
             colors: ["#0D1117", "#161B22", "#1C2333"],
@@ -353,7 +366,8 @@ function header(title, accent, sinceLabel, showTime) {
     return hstack(children, { gap: 5 });
 }
 
-function footer(stale, source) {
+function footer(status, source) {
+    var isLive = status === "live";
     var sourceText = source === "search" ? "search" : "trend";
     var sourceColor = source === "search" ? "#FFD16666" : "#3FB95066";
     return hstack([
@@ -367,7 +381,7 @@ function footer(stale, source) {
         },
         sp(),
         txt(sourceText, 8, "medium", sourceColor),
-        txt(stale ? "cached" : "live", 8, "medium", stale ? "#FFC10766" : "#3FB95066")
+        txt(isLive ? "live" : "cached", 8, "medium", isLive ? "#3FB95066" : "#FFC10766")
     ], { gap: 3 });
 }
 
@@ -445,6 +459,11 @@ function clampNumber(val, min, max) {
     return n;
 }
 
+function isTrue(val) {
+    var v = String(val || "").toLowerCase();
+    return v === "1" || v === "true" || v === "yes" || v === "y" || v === "on";
+}
+
 function fmtK(n) {
     if (!isFinite(n) || n < 0) return "0";
     if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
@@ -485,9 +504,11 @@ function extractLanguage(article) {
 }
 
 function extractCount(article, type) {
-    var re = new RegExp("href=\"/[^\"]+/" + type + "\"[^>]*>\\s*([\\d,]+)\\s*<", "i");
+    // 允许链接内包含 SVG/Span 等嵌套标签
+    var re = new RegExp("href=\"/[^\"]+/" + type + "\"[^>]*>([\\s\\S]*?)</a>", "i");
     var m = article.match(re);
-    return m ? parseNumber(m[1]) : 0;
+    if (!m) return 0;
+    return parseNumber(m[1]);
 }
 
 function extractTrend(article) {
