@@ -1,332 +1,587 @@
-// Star-History (串行抽样版) 面板小组件
-// 纯依靠本地原生 JS 实现，移植了星标历史"均匀截断点抽样"算法。
-// 为避免 iOS 小组件内存限制导致 OOM，采用串行请求 + 即时丢弃策略。
+// Star-History 小组件（严格按 Egern Widget DSL 可用属性重构版）
+// 设计目标：
+// 1) 永不返回空白：任何异常都回退到可视化错误文本
+// 2) 支持分阶段渲染验证：RENDER_STAGE=0/1/2/3
+//    - 0: 最小模板（仅 widget + text）
+//    - 1: 标题行
+//    - 2: 标题行 + 数字行
+//    - 3: 标题行 + 数字行 + 柱图行（完整）
+// 3) 网络请求串行化，避免高内存峰值
+
+const PER_PAGE = 100
+const DEFAULT_SAMPLE_POINTS = 15
 
 export default async function (ctx) {
-  const env = ctx.env;
-  let repo = env.GITHUB_REPO;
-
-  // 支持传入完整的 repo url 链接，例如 https://github.com/apache/flink-cdc
-  if (repo && repo.includes("github.com/")) {
-    const parts = repo.split("github.com/");
-    if (parts.length > 1) {
-      repo = parts[1].split("/").slice(0, 2).join("/");
-    }
+  try {
+    return await run(ctx)
+  } catch (err) {
+    return buildErrorWidget("脚本异常", safeError(err))
   }
+}
 
-  const title = env.TITLE || repo;
-  const chartColor = env.CHART_COLOR || "#FF7E5F";
-  // 抽样点数量：推荐 15 左右即可完美兼容 Egern 横向空间
-  const SAMPLE_POINTS = parseInt(env.SAMPLE_POINTS || "15", 10);
-  const GITHUB_TOKEN = env.GITHUB_TOKEN || "";
+async function run(ctx) {
+  const env = ctx.env || {}
+
+  const repo = normalizeRepo(env.GITHUB_REPO || "")
+  const title = env.TITLE || repo || "GitHub Stars"
+  const chartColor = env.CHART_COLOR || "#E36209"
+  const samplePoints = clampInt(env.SAMPLE_POINTS, DEFAULT_SAMPLE_POINTS, 3, 30)
+  const stage = clampInt(env.RENDER_STAGE, 3, 0, 3)
+  const token = env.GITHUB_TOKEN || ""
 
   if (!repo) {
-    return buildErrorWidget("未配置环境参数 GITHUB_REPO", "例如 'vuejs/vue'");
+    return buildErrorWidget("配置缺失", "请设置 GITHUB_REPO，例如 vuejs/vue")
   }
 
-  const CACHE_KEY = `github_stars_wave_${repo}`;
-  const PER_PAGE = 100;
+  if (stage === 0) {
+    return buildStage0Widget(title)
+  }
 
-  let starRecords = [];
-  let currentTotalStars = 0;
-  let chartLoaded = false;
-  let errorMsg = "";
+  if (stage === 1) {
+    return buildStage1Widget(title, repo)
+  }
+
+  const cacheKey = `github_stars_v2_${repo}`
+  let data = null
+  let stale = false
+  let warning = ""
 
   try {
-    // token header 独立提取，按需注入
-    const tokenHeader = {};
-    if (GITHUB_TOKEN) {
-      tokenHeader["Authorization"] = `token ${GITHUB_TOKEN}`;
+    data = await fetchStarData(ctx, repo, samplePoints, token)
+    writeCache(ctx, cacheKey, data)
+  } catch (err) {
+    warning = safeError(err)
+    data = readCache(ctx, cacheKey)
+    stale = !!data
+
+    if (!data) {
+      return buildErrorWidget("数据获取失败", warning)
     }
+  }
 
-    // stargazer 专用 header（需要 starred_at 字段）
-    const starHeaders = {
-      "Accept": "application/vnd.github.v3.star+json",
-      "User-Agent": "Egern-Widget-Client",
-      ...tokenHeader
-    };
+  if (stage === 2) {
+    return buildStage2Widget({
+      title,
+      repo,
+      total: data.total,
+      stale,
+      warning
+    })
+  }
 
-    // repo info 请求使用标准 header（不需要 star+json 格式，减少响应体积）
-    const repoHeaders = {
-      "User-Agent": "Egern-Widget-Client",
-      ...tokenHeader
-    };
+  return buildStage3Widget({
+    title,
+    repo,
+    total: data.total,
+    records: data.records,
+    chartColor,
+    stale,
+    warning
+  })
+}
 
-    // 【步骤 1】获取仓库基本信息（含 stargazers_count）
-    const repoInfoReq = await ctx.http.get(`https://api.github.com/repos/${repo}`, {
-      headers: repoHeaders
-    });
+async function fetchStarData(ctx, repo, samplePoints, token) {
+  const tokenHeader = {}
+  if (token) {
+    tokenHeader.Authorization = `token ${token}`
+  }
 
-    if (repoInfoReq.status !== 200) {
-      throw new Error(`API 异常 (Status ${repoInfoReq.status})`);
+  const repoHeaders = {
+    "User-Agent": "Egern-Widget-Client",
+    ...tokenHeader
+  }
+
+  const starHeaders = {
+    "User-Agent": "Egern-Widget-Client",
+    Accept: "application/vnd.github.v3.star+json",
+    ...tokenHeader
+  }
+
+  const repoResp = await fetchJsonWithHeaders(ctx, `https://api.github.com/repos/${repo}`, repoHeaders)
+  const total = toNonNegativeInt(repoResp.body && repoResp.body.stargazers_count)
+
+  if (total === 0) {
+    return {
+      total: 0,
+      records: [{ count: 0, date: new Date().toISOString() }]
     }
-    const repoInfoData = await repoInfoReq.json();
-    currentTotalStars = repoInfoData.stargazers_count;
+  }
 
-    if (currentTotalStars === 0) {
-      starRecords = [{ count: 0, date: new Date().toISOString() }];
-      chartLoaded = true;
-    } else {
-      // 【步骤 2】请求 stargazers 首页，通过 Link header 获取总页数
-      const firstPageReq = await ctx.http.get(
-        `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=1`,
-        { headers: starHeaders }
-      );
+  const firstPageResp = await fetchJsonWithHeaders(
+    ctx,
+    `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=1`,
+    starHeaders
+  )
 
-      if (firstPageReq.status !== 200) {
-        throw new Error(`无法获取 stargazers 列表 (Status ${firstPageReq.status})`);
-      }
+  const firstPageData = Array.isArray(firstPageResp.body) ? firstPageResp.body : []
+  const totalPages = parseLastPage(firstPageResp.headers)
+  const samplePages = buildSamplePages(totalPages, samplePoints)
 
-      let totalPages = 1;
-      const linkHeader = firstPageReq.headers && (firstPageReq.headers["link"] || firstPageReq.headers["Link"]);
-      if (linkHeader) {
-        // 正确提取 rel="last" 对应的 page 值
-        const match = linkHeader.match(/[?&]page=(\d+)>;\s*rel="last"/);
-        if (match && match[1]) {
-          totalPages = parseInt(match[1], 10);
-        }
-      }
+  const records = []
 
-      // 从首页数据中提取第一个抽样点（避免浪费已有数据）
-      let firstPageData = null;
-      try {
-        firstPageData = await firstPageReq.json();
-      } catch (e) { /* ignore */ }
-
-      // 【步骤 3】计算抽样页码
-      let requestPages = [];
-      if (totalPages <= SAMPLE_POINTS) {
-        for (let i = 1; i <= totalPages; i++) requestPages.push(i);
+  for (const page of samplePages) {
+    try {
+      let pageData = null
+      if (page === 1) {
+        pageData = firstPageData
       } else {
-        for (let i = 1; i < SAMPLE_POINTS; i++) {
-          requestPages.push(Math.round((i * totalPages) / SAMPLE_POINTS));
-        }
+        const pageResp = await fetchJsonWithHeaders(
+          ctx,
+          `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=${page}`,
+          starHeaders
+        )
+        pageData = Array.isArray(pageResp.body) ? pageResp.body : []
       }
 
-      if (!requestPages.includes(1)) requestPages.unshift(1);
-      if (requestPages[requestPages.length - 1] > totalPages) {
-        requestPages.pop();
+      if (pageData.length > 0 && pageData[0].starred_at) {
+        records.push({
+          count: Math.max(0, (page - 1) * PER_PAGE + 1),
+          date: pageData[0].starred_at
+        })
       }
-      requestPages = [...new Set(requestPages)];
+    } catch (pageErr) {
+      console.log(`[github-stars] page ${page} skipped: ${safeError(pageErr)}`)
+    }
+  }
 
-      // 【步骤 4】串行请求各抽样页，即时提取后丢弃完整数据（控制内存峰值）
-      starRecords = [];
+  records.push({ count: total, date: new Date().toISOString() })
 
-      for (const page of requestPages) {
-        try {
-          let pageData = null;
+  const normalized = normalizeRecords(records, samplePoints, total)
 
-          // 第 1 页已经请求过了，直接复用
-          if (page === 1 && firstPageData) {
-            pageData = firstPageData;
-            firstPageData = null; // 用完即释放
-          } else {
-            const req = await ctx.http.get(
-              `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=${page}`,
-              { headers: starHeaders }
-            );
-            if (req.status === 200) {
-              pageData = await req.json();
-            }
-          }
+  return {
+    total,
+    records: normalized
+  }
+}
 
-          if (pageData && pageData.length > 0) {
-            // 只提取需要的两个值，pageData 在块作用域结束后即可被 GC
-            starRecords.push({
-              count: PER_PAGE * (page - 1),
-              date: pageData[0].starred_at
-            });
-          }
-        } catch (e) {
-          // 单页失败不影响整体（可能是限流等临时问题）
-        }
-      }
+async function fetchJsonWithHeaders(ctx, url, headers) {
+  let resp
+  try {
+    resp = await ctx.http.get(url, { headers })
+  } catch (err) {
+    throw new Error(`请求失败: ${url} -> ${safeError(err)}`)
+  }
 
-      // 释放首页数据引用
-      firstPageData = null;
+  if (!resp || resp.status !== 200) {
+    const status = resp && typeof resp.status === "number" ? resp.status : "unknown"
+    throw new Error(`HTTP ${status}: ${url}`)
+  }
 
-      // 追加当前真实总数作为最后一个数据点
-      starRecords.push({
-        count: currentTotalStars,
-        date: new Date().toISOString()
-      });
-
-      // 按时间排序（防止抽样乱序）
-      starRecords.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-      // 缓存到本地（离线兜底）
-      ctx.storage.setJSON(CACHE_KEY, { total: currentTotalStars, records: starRecords });
-      chartLoaded = true;
+  try {
+    return {
+      body: await resp.json(),
+      headers: resp.headers || {}
     }
   } catch (err) {
-    // 失败时尝试拉取本地缓存兜底
-    errorMsg = err.message;
-    const fallback = ctx.storage.getJSON(CACHE_KEY);
-    if (fallback && fallback.records && fallback.total !== undefined) {
-      currentTotalStars = fallback.total;
-      starRecords = fallback.records;
-      chartLoaded = true;
+    throw new Error(`JSON 解析失败: ${url} -> ${safeError(err)}`)
+  }
+}
+
+function buildSamplePages(totalPages, samplePoints) {
+  const pages = []
+
+  if (totalPages <= 1) {
+    return [1]
+  }
+
+  const slots = Math.max(1, samplePoints - 1)
+
+  if (totalPages <= slots) {
+    for (let p = 1; p <= totalPages; p += 1) {
+      pages.push(p)
+    }
+  } else {
+    for (let i = 0; i < slots; i += 1) {
+      const ratio = slots === 1 ? 0 : i / (slots - 1)
+      const page = 1 + Math.round(ratio * (totalPages - 1))
+      pages.push(page)
     }
   }
 
-  // ==== UI 渲染 ====
+  return uniqueSortedInts(pages)
+}
 
-  if (!chartLoaded) {
-    return buildErrorWidget("API 限流或无网络", errorMsg + `\n(可配置 GITHUB_TOKEN 提升限额)`);
+function normalizeRecords(records, samplePoints, total) {
+  const valid = records
+    .filter((r) => r && Number.isFinite(r.count))
+    .map((r) => ({
+      count: toNonNegativeInt(r.count),
+      date: typeof r.date === "string" ? r.date : new Date().toISOString()
+    }))
+
+  valid.sort((a, b) => a.count - b.count)
+
+  const dedup = []
+  for (const item of valid) {
+    if (dedup.length === 0 || dedup[dedup.length - 1].count !== item.count) {
+      dedup.push(item)
+    }
   }
 
-  // 计算柱形高度映射
-  let maxStar = 0;
-  starRecords.forEach(r => { if (r.count > maxStar) maxStar = r.count; });
-  if (maxStar === 0) maxStar = 1;
-
-  const normalizedRecords = starRecords.filter(r => r && Number.isFinite(r.count));
-
-  const bars = normalizedRecords.map(record => {
-    const heightPercent = record.count / maxStar;
-    const barWeight = Math.max(0.08, Math.min(1, heightPercent));
-    const topFlex = parseFloat((1 - barWeight).toFixed(3));
-    const bottomFlex = parseFloat(barWeight.toFixed(3));
-
-    return {
-      type: "stack",
-      direction: "column",
-      flex: 1,
-      children: [
-        { type: "spacer", flex: topFlex },
-        {
-          type: "stack",
-          flex: bottomFlex,
-          backgroundColor: chartColor,
-          borderRadius: 2
-        }
-      ]
-    };
-  });
-
-  // 不足抽样数时插入空占位
-  while (bars.length < SAMPLE_POINTS) {
-    bars.unshift({
-      type: "stack",
-      direction: "column",
-      flex: 1,
-      children: [{ type: "spacer", flex: 1 }]
-    });
+  const last = dedup.length > 0 ? dedup[dedup.length - 1] : null
+  if (!last || last.count !== total) {
+    dedup.push({ count: total, date: new Date().toISOString() })
   }
 
-  // 兜底：确保图表区域至少有一个可渲染元素
-  if (bars.length === 0) {
+  if (dedup.length <= samplePoints) {
+    return dedup
+  }
+
+  const sampled = []
+  for (let i = 0; i < samplePoints; i += 1) {
+    const idx = Math.round((i * (dedup.length - 1)) / (samplePoints - 1))
+    sampled.push(dedup[idx])
+  }
+
+  return sampled
+}
+
+function buildStage0Widget(title) {
+  return {
+    type: "widget",
+    padding: 16,
+    backgroundColor: "#0D1117",
+    children: [
+      {
+        type: "text",
+        text: `Star-History Ready · ${title}`,
+        font: { size: "subheadline", weight: "semibold" },
+        textColor: "#FFFFFF"
+      }
+    ]
+  }
+}
+
+function buildStage1Widget(title, repo) {
+  return {
+    type: "widget",
+    padding: 16,
+    backgroundColor: "#0D1117",
+    children: [
+      {
+        type: "stack",
+        direction: "column",
+        gap: 8,
+        children: [
+          {
+            type: "text",
+            text: title,
+            font: { size: "headline", weight: "bold" },
+            textColor: "#FFFFFF"
+          },
+          {
+            type: "text",
+            text: repo,
+            font: { size: "caption1" },
+            textColor: "#8B949E"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+function buildStage2Widget({ title, repo, total, stale, warning }) {
+  return {
+    type: "widget",
+    padding: 16,
+    backgroundColor: "#0D1117",
+    children: [
+      {
+        type: "stack",
+        direction: "column",
+        gap: 8,
+        children: [
+          {
+            type: "text",
+            text: title,
+            font: { size: "headline", weight: "bold" },
+            textColor: "#FFFFFF"
+          },
+          {
+            type: "text",
+            text: repo,
+            font: { size: "caption1" },
+            textColor: "#8B949E"
+          },
+          {
+            type: "text",
+            text: formatNumber(total),
+            font: { size: 34, weight: "heavy" },
+            textColor: "#FFFFFF",
+            minScale: 0.6
+          },
+          {
+            type: "text",
+            text: stale ? `缓存数据 · ${warning}` : "实时数据",
+            font: { size: "caption2" },
+            textColor: stale ? "#FFC107" : "#8B949E",
+            maxLines: 2
+          }
+        ]
+      }
+    ]
+  }
+}
+
+function buildStage3Widget({ title, repo, total, records, chartColor, stale, warning }) {
+  const bars = buildBars(records, chartColor)
+
+  return {
+    type: "widget",
+    padding: 16,
+    backgroundColor: "#0D1117",
+    children: [
+      {
+        type: "stack",
+        direction: "column",
+        gap: 10,
+        children: [
+          {
+            type: "text",
+            text: title,
+            font: { size: "headline", weight: "bold" },
+            textColor: "#FFFFFF"
+          },
+          {
+            type: "text",
+            text: repo,
+            font: { size: "caption1" },
+            textColor: "#8B949E"
+          },
+          {
+            type: "text",
+            text: `${formatNumber(total)} Stars`,
+            font: { size: 28, weight: "heavy" },
+            textColor: "#FFFFFF",
+            minScale: 0.6
+          },
+          {
+            type: "stack",
+            direction: "row",
+            alignItems: "end",
+            height: 44,
+            gap: 3,
+            children: bars
+          },
+          {
+            type: "text",
+            text: stale ? `缓存数据 · ${warning}` : "实时数据",
+            font: { size: "caption2" },
+            textColor: stale ? "#FFC107" : "#8B949E",
+            maxLines: 2
+          }
+        ]
+      }
+    ]
+  }
+}
+
+function buildBars(records, chartColor) {
+  const safe = Array.isArray(records) ? records.filter((r) => r && Number.isFinite(r.count)) : []
+  if (safe.length === 0) {
+    return [
+      {
+        type: "stack",
+        flex: 1,
+        backgroundColor: "#30363D",
+        borderRadius: 2,
+        children: []
+      }
+    ]
+  }
+
+  let maxCount = 0
+  for (const item of safe) {
+    if (item.count > maxCount) {
+      maxCount = item.count
+    }
+  }
+  if (maxCount <= 0) {
+    maxCount = 1
+  }
+
+  const bars = []
+  for (const item of safe) {
+    const ratio = item.count / maxCount
+    const filled = Math.max(6, Math.round(ratio * 100))
+    const empty = Math.max(1, 100 - filled)
+
     bars.push({
       type: "stack",
       direction: "column",
       flex: 1,
-      children: [{ type: "spacer", flex: 1 }]
-    });
+      children: [
+        { type: "stack", flex: empty, children: [] },
+        {
+          type: "stack",
+          flex: filled,
+          backgroundColor: chartColor,
+          borderRadius: 2,
+          children: []
+        }
+      ]
+    })
   }
 
+  return bars
+}
+
+function buildErrorWidget(title, message) {
   return {
     type: "widget",
-    padding: 18,
-    gap: 12,
-    backgroundGradient: {
-      type: "linear",
-      colors: ["#161B22", "#0D1117"],
-      startPoint: { x: 0, y: 0 },
-      endPoint: { x: 1, y: 1 }
-    },
+    padding: 16,
+    backgroundColor: "#0D1117",
     children: [
-      // 顶部：图标 + 标题
       {
         type: "stack",
-        direction: "row",
-        alignItems: "center",
-        gap: 6,
+        direction: "column",
+        gap: 8,
         children: [
-          {
-            type: "image",
-            src: "sf-symbol:star.fill",
-            width: 14,
-            height: 14,
-            color: chartColor
-          },
           {
             type: "text",
             text: title,
-            font: { size: "caption1", weight: "bold" },
-            textColor: "#C9D1D9"
+            font: { size: "headline", weight: "bold" },
+            textColor: "#FF6B6B"
           },
-          { type: "spacer" }
-        ]
-      },
-
-      // 中间：Star 总数大字
-      {
-        type: "stack",
-        direction: "row",
-        alignItems: "end",
-        padding: [4, 0, 4, 0],
-        gap: 4,
-        children: [
           {
             type: "text",
-            text: formatNumber(currentTotalStars),
-            font: { size: 30, weight: "heavy" },
+            text: message || "未知错误",
+            font: { size: "caption1" },
             textColor: "#FFFFFF",
-            minScale: 0.7
-          },
-          {
-            type: "stack",
-            padding: [0, 0, 4, 0],
-            children: [
-              {
-                type: "text",
-                text: "Stars",
-                font: { size: 11, weight: "semibold" },
-                textColor: "#8B949E"
-              }
-            ]
+            maxLines: 4,
+            minScale: 0.6
           }
         ]
-      },
-
-      // 底部：趋势柱状图
-      {
-        type: "stack",
-        direction: "row",
-        alignItems: "end",
-        flex: 1,
-        gap: 4,
-        children: bars
       }
     ]
-  };
+  }
 }
 
-// 辅助函数：异常小组件 UI
-function buildErrorWidget(title, msg) {
-  return {
-    type: "widget",
-    backgroundColor: "#161B22",
-    padding: 16,
-    gap: 8,
-    children: [
-      {
-        type: "stack",
-        direction: "row",
-        alignItems: "center",
-        gap: 6,
-        children: [
-          { type: "image", src: "sf-symbol:exclamationmark.triangle.fill", width: 14, height: 14, color: "#FFC107" },
-          { type: "text", text: title, font: { size: "caption1", weight: "bold" }, textColor: "#FFFFFF" }
-        ]
-      },
-      { type: "spacer" },
-      { type: "text", text: msg, font: { size: "caption2" }, textColor: "#AAAAAA", maxLines: 4 }
-    ]
-  };
+function parseLastPage(headers) {
+  if (!headers) {
+    return 1
+  }
+
+  const link = headers.link || headers.Link
+  if (!link || typeof link !== "string") {
+    return 1
+  }
+
+  const match = link.match(/[?&]page=(\d+)>;\s*rel="last"/)
+  if (!match || !match[1]) {
+    return 1
+  }
+
+  const n = parseInt(match[1], 10)
+  return Number.isFinite(n) && n > 0 ? n : 1
 }
 
-// 数字千分位 e.g. 100,000
-function formatNumber(num) {
-  return num ? num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "0";
+function normalizeRepo(input) {
+  let repo = String(input || "").trim()
+  if (!repo) {
+    return ""
+  }
+
+  if (repo.includes("github.com/")) {
+    const parts = repo.split("github.com/")
+    if (parts.length > 1) {
+      repo = parts[1]
+    }
+  }
+
+  repo = repo.replace(/^\/+/, "").replace(/\/+$/, "")
+  const segments = repo.split("/").filter(Boolean)
+  if (segments.length >= 2) {
+    return `${segments[0]}/${segments[1]}`
+  }
+
+  return ""
+}
+
+function formatNumber(n) {
+  const value = Number.isFinite(n) ? n : 0
+  return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+}
+
+function safeError(err) {
+  if (!err) {
+    return "未知错误"
+  }
+
+  if (typeof err === "string") {
+    return err
+  }
+
+  if (err && typeof err.message === "string") {
+    return err.message
+  }
+
+  return "未知错误"
+}
+
+function clampInt(input, fallback, min, max) {
+  const n = parseInt(String(input), 10)
+  if (!Number.isFinite(n)) {
+    return fallback
+  }
+
+  if (n < min) {
+    return min
+  }
+
+  if (n > max) {
+    return max
+  }
+
+  return n
+}
+
+function toNonNegativeInt(n) {
+  const value = parseInt(String(n), 10)
+  if (!Number.isFinite(value) || value < 0) {
+    return 0
+  }
+  return value
+}
+
+function uniqueSortedInts(values) {
+  const nums = values
+    .filter((v) => Number.isFinite(v))
+    .map((v) => parseInt(String(v), 10))
+    .filter((v) => Number.isFinite(v) && v > 0)
+
+  nums.sort((a, b) => a - b)
+
+  const out = []
+  for (const n of nums) {
+    if (out.length === 0 || out[out.length - 1] !== n) {
+      out.push(n)
+    }
+  }
+  return out
+}
+
+function readCache(ctx, key) {
+  try {
+    const data = ctx.storage.getJSON(key)
+    if (!data || !Number.isFinite(data.total) || !Array.isArray(data.records)) {
+      return null
+    }
+    return {
+      total: toNonNegativeInt(data.total),
+      records: data.records
+    }
+  } catch (err) {
+    console.log(`[github-stars] read cache failed: ${safeError(err)}`)
+    return null
+  }
+}
+
+function writeCache(ctx, key, data) {
+  try {
+    ctx.storage.setJSON(key, data)
+  } catch (err) {
+    console.log(`[github-stars] write cache failed: ${safeError(err)}`)
+  }
 }
