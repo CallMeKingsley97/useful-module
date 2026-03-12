@@ -1,9 +1,13 @@
-// Star-History 小组件 (V5 纯Flex图表修复版)
-// 1. 彻底解决 iOS 底部对齐导致的宽度塌陷 Bug，改用纯 Flex 纵向分割绘制柱状图。
-// 2. 强制使用 ctx.http 并在 URL 后追加时间戳，打破强缓存并确保能在 Egern 日志中抓到请求。
+// GitHub Stars 小组件 (V6 曲线趋势增强版)
+// 1. 使用 starred_at 生成更真实的历史趋势点位。
+// 2. 支持曲线/柱状双模式显示，默认曲线。
+// 3. 修复柱体高度计算，避免 Flex 兼容问题。
 
 const PER_PAGE = 100
-const DEFAULT_SAMPLE_POINTS = 15
+const DEFAULT_SAMPLE_POINTS = 18
+const DEFAULT_SAMPLES_PER_PAGE = 3
+const DEFAULT_CHART_HEIGHT = 46
+const DEFAULT_DOT_SIZE = 4
 
 export default async function (ctx) {
   try {
@@ -18,11 +22,16 @@ async function run(ctx) {
   const repo = normalizeRepo(env.GITHUB_REPO || "")
   const title = env.TITLE || repo || "GitHub Stars"
   const chartColor = env.CHART_COLOR || "#E36209"
-  const samplePoints = clampInt(env.SAMPLE_POINTS, DEFAULT_SAMPLE_POINTS, 3, 30)
+  const samplePoints = clampInt(env.SAMPLE_POINTS, DEFAULT_SAMPLE_POINTS, 6, 36)
+  const samplesPerPage = clampInt(env.SAMPLES_PER_PAGE, DEFAULT_SAMPLES_PER_PAGE, 1, 6)
+  const chartHeight = clampInt(env.CHART_HEIGHT, DEFAULT_CHART_HEIGHT, 28, 80)
+  const dotSize = clampInt(env.DOT_SIZE, DEFAULT_DOT_SIZE, 3, 8)
+  const chartStyle = String(env.CHART_STYLE || "line").toLowerCase()
+  const showRange = parseBoolean(env.SHOW_RANGE, true)
   const stage = clampInt(env.RENDER_STAGE, 3, 0, 3)
 
   // 清洗 Token，防止误填引号
-  let token = (env.GITHUB_TOKEN || "").replace(/['"]/g, '').trim()
+  let token = (env.GITHUB_TOKEN || "").replace(/['"]/g, "").trim()
 
   if (!repo) {
     return buildErrorWidget("配置缺失", "请设置环境变量 GITHUB_REPO，如 egerndaddy/quick-start")
@@ -31,13 +40,13 @@ async function run(ctx) {
   if (stage === 0) return buildStage0Widget(title)
   if (stage === 1) return buildStage1Widget(title, repo)
 
-  const cacheKey = `github_stars_v5_${repo.replace("/", "_")}`
+  const cacheKey = `github_stars_v6_${repo.replace("/", "_")}`
   let data = null
   let stale = false
   let warning = ""
 
   try {
-    data = await fetchStarData(ctx, repo, samplePoints, token)
+    data = await fetchStarData(ctx, repo, samplePoints, samplesPerPage, token)
     writeCache(ctx, cacheKey, data)
   } catch (err) {
     warning = safeError(err)
@@ -48,16 +57,28 @@ async function run(ctx) {
 
   if (stage === 2) return buildStage2Widget({ title, repo, total: data.total, stale, warning })
 
-  return buildStage3Widget({ title, repo, total: data.total, records: data.records, chartColor, stale, warning })
+  return buildStage3Widget({
+    title,
+    repo,
+    total: data.total,
+    records: data.records,
+    range: data.range,
+    chartColor,
+    chartHeight,
+    dotSize,
+    chartStyle,
+    showRange,
+    stale,
+    warning
+  })
 }
 
 // ============== 网络请求层 (防缓存强化版) ==============
 
 async function fetchJsonWithHeaders(ctx, url, headers) {
-  // 追加时间戳，彻底打破 iOS 和 Egern 的任何网络层缓存
-  const noCacheUrl = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+  const noCacheUrl = url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now()
 
-  if (ctx && ctx.http && typeof ctx.http.get === 'function') {
+  if (ctx && ctx.http && typeof ctx.http.get === "function") {
     try {
       const resp = await ctx.http.get(noCacheUrl, { headers })
       if (!resp || resp.status !== 200) throw new Error(`HTTP ${resp ? resp.status : "unknown"}`)
@@ -69,7 +90,7 @@ async function fetchJsonWithHeaders(ctx, url, headers) {
   throw new Error("当前环境不支持 ctx.http 网络请求")
 }
 
-async function fetchStarData(ctx, repo, samplePoints, token) {
+async function fetchStarData(ctx, repo, samplePoints, samplesPerPage, token) {
   const baseHeaders = { "User-Agent": "Egern-Widget-Client" }
   if (token) baseHeaders.Authorization = `Bearer ${token}`
 
@@ -78,7 +99,7 @@ async function fetchStarData(ctx, repo, samplePoints, token) {
   const repoResp = await fetchJsonWithHeaders(ctx, `https://api.github.com/repos/${repo}`, baseHeaders)
   const total = toNonNegativeInt(repoResp.body && repoResp.body.stargazers_count)
 
-  if (total === 0) return { total: 0, records: [{ count: 0 }] }
+  if (total === 0) return { total: 0, records: [{ count: 0 }], range: null }
 
   const firstPageResp = await fetchJsonWithHeaders(ctx, `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=1`, starHeaders)
   const firstPageData = Array.isArray(firstPageResp.body) ? firstPageResp.body : []
@@ -88,69 +109,69 @@ async function fetchStarData(ctx, repo, samplePoints, token) {
   const records = []
   for (const page of samplePages) {
     try {
-      let pageData = page === 1 ? firstPageData : (await fetchJsonWithHeaders(ctx, `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=${page}`, starHeaders)).body
-
-      if (Array.isArray(pageData) && pageData.length > 0) {
-        // 微观采样：切片提取多个点位
-        const step = Math.max(1, Math.floor(pageData.length / 4))
-        for (let i = 0; i < pageData.length; i += step) {
-          records.push({ count: (page - 1) * PER_PAGE + i + 1 })
-        }
-        records.push({ count: (page - 1) * PER_PAGE + pageData.length })
-      }
+      const pageData = page === 1 ? firstPageData : (await fetchJsonWithHeaders(ctx, `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=${page}`, starHeaders)).body
+      collectRecordsFromPage(records, pageData, page, total, samplesPerPage)
     } catch (pageErr) {
       console.log(`[github-stars] skipped page ${page}: ${safeError(pageErr)}`)
     }
   }
 
-  records.push({ count: total })
-  return { total, records: normalizeRecords(records, samplePoints, total) }
+  appendLatestRecord(records, firstPageData, total)
+
+  const normalized = normalizeRecords(records, samplePoints, total)
+  return { total, records: normalized, range: buildRange(normalized) }
 }
 
-// ============== 核心 UI 渲染层 (完美修复塌陷Bug) ==============
+function collectRecordsFromPage(records, pageData, page, total, samplesPerPage) {
+  if (!Array.isArray(pageData) || pageData.length === 0) return
+  const indexes = buildSampleIndexes(pageData.length, samplesPerPage)
 
-function buildStage3Widget({ title, repo, total, records, chartColor, stale, warning }) {
-  const safe = Array.isArray(records) ? records.filter((r) => r && Number.isFinite(r.count)) : []
-  let maxCount = safe.reduce((max, item) => Math.max(max, item.count), 1)
-
-  // 关键修复：用两个 Flex 色块互相推挤的方式画柱子，抛弃绝对高度和 alignItems
-  const bars = safe.map(item => {
-    const ratio = item.count / maxCount
-    const filled = Math.max(0.001, ratio)       // 避免 flex 为 0 引发崩溃
-    const empty = Math.max(0.001, 1 - ratio)
-
-    return {
-      type: "stack",
-      direction: "column",
-      flex: 1, // 横向上平分所有宽度
-      gap: 0,
-      children: [
-        {
-          type: "stack",
-          flex: empty, // 上半部分：透明留白
-          children: []
-        },
-        {
-          type: "stack",
-          flex: filled, // 下半部分：有颜色的柱体
-          backgroundColor: chartColor,
-          borderRadius: 2,
-          children: []
-        }
-      ]
-    }
-  })
-
-  // 如果没有数据，渲染一根灰色的平底占位条
-  if (bars.length === 0) {
-    bars.push({ type: "stack", direction: "column", flex: 1, children: [{ type: "stack", flex: 0.95, children: [] }, { type: "stack", flex: 0.05, backgroundColor: "#30363D", borderRadius: 2, children: [] }] })
+  for (const idx of indexes) {
+    const item = pageData[idx]
+    const absoluteIndex = (page - 1) * PER_PAGE + idx
+    const count = Math.max(1, total - absoluteIndex)
+    const time = parseStarTime(item && item.starred_at)
+    records.push({ count, time })
   }
+}
+
+function appendLatestRecord(records, firstPageData, total) {
+  const latest = Array.isArray(firstPageData) && firstPageData.length > 0 ? firstPageData[0] : null
+  const time = parseStarTime(latest && latest.starred_at)
+  records.push({ count: total, time })
+}
+
+// ============== 核心 UI 渲染层 ==============
+
+function buildStage3Widget({
+  title,
+  repo,
+  total,
+  records,
+  range,
+  chartColor,
+  chartHeight,
+  dotSize,
+  chartStyle,
+  showRange,
+  stale,
+  warning
+}) {
+  const trend = buildTrendSummary(records)
+  const chart = chartStyle === "bar"
+    ? buildBarChart(records, chartColor, chartHeight)
+    : buildLineChart(records, chartColor, chartHeight, dotSize)
 
   return {
     type: "widget",
     padding: 16,
     gap: 12,
-    backgroundColor: "#0D1117",
+    backgroundGradient: {
+      type: "linear",
+      colors: ["#0D1117", "#111827"],
+      startPoint: { x: 0, y: 0 },
+      endPoint: { x: 1, y: 1 }
+    },
     children: [
       {
         type: "stack",
@@ -168,7 +189,7 @@ function buildStage3Widget({ title, repo, total, records, chartColor, stale, war
         type: "stack",
         direction: "row",
         alignItems: "end",
-        gap: 4,
+        gap: 8,
         children: [
           { type: "text", text: formatNumber(total), font: { size: 34, weight: "bold" }, textColor: "#FFFFFF" },
           {
@@ -177,45 +198,205 @@ function buildStage3Widget({ title, repo, total, records, chartColor, stale, war
             children: [
               { type: "text", text: "Stars", font: { size: "caption1", weight: "medium" }, textColor: "#8B949E" }
             ]
-          }
+          },
+          { type: "spacer" },
+          trend.deltaText
+            ? {
+              type: "stack",
+              padding: [4, 8],
+              backgroundColor: trend.deltaColor,
+              borderRadius: 10,
+              children: [
+                { type: "text", text: trend.deltaText, font: { size: "caption2", weight: "semibold" }, textColor: "#FFFFFF" }
+              ]
+            }
+            : { type: "spacer" }
         ]
       },
-      // 图表容器：高度固定为 40，内部的 Column Bars 会自然地充满这个高度
       {
         type: "stack",
         direction: "row",
-        height: 40,
-        gap: 3,
-        children: bars
+        height: chartHeight,
+        gap: chartStyle === "bar" ? 3 : 5,
+        children: chart
       },
-      {
-        type: "stack",
-        direction: "row",
-        alignItems: "center",
-        children: [
-          { type: "text", text: stale ? `缓存数据 · ${warning}` : "实时数据", font: { size: "caption2" }, textColor: stale ? "#FFC107" : "#8B949E", maxLines: 1 }
-        ]
-      }
+      showRange && range
+        ? {
+          type: "stack",
+          direction: "row",
+          alignItems: "center",
+          children: [
+            { type: "text", text: range, font: { size: "caption2" }, textColor: "#8B949E" },
+            { type: "spacer" },
+            { type: "text", text: stale ? `缓存数据 · ${warning}` : "实时数据", font: { size: "caption2" }, textColor: stale ? "#FFC107" : "#8B949E", maxLines: 1 }
+          ]
+        }
+        : {
+          type: "stack",
+          direction: "row",
+          alignItems: "center",
+          children: [
+            { type: "text", text: stale ? `缓存数据 · ${warning}` : "实时数据", font: { size: "caption2" }, textColor: stale ? "#FFC107" : "#8B949E", maxLines: 1 }
+          ]
+        }
     ]
   }
 }
 
-function buildErrorWidget(title, message) {
-  return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "stack", direction: "row", alignItems: "center", gap: 6, children: [{ type: "image", src: "sf-symbol:exclamationmark.triangle.fill", width: 16, height: 16, color: "#FF6B6B" }, { type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FF6B6B" }] }, { type: "text", text: message || "未知错误", font: { size: "caption1" }, textColor: "#FFFFFF", maxLines: 4 }] }
+function buildLineChart(records, chartColor, chartHeight, dotSize) {
+  const safe = normalizeChartRecords(records)
+  if (safe.length === 0) return [buildEmptyChartDot(chartColor, chartHeight, dotSize)]
+
+  const minCount = safe.reduce((min, item) => Math.min(min, item.count), safe[0].count)
+  const maxCount = safe.reduce((max, item) => Math.max(max, item.count), safe[0].count)
+  const range = Math.max(1, maxCount - minCount)
+
+  return safe.map((item) => {
+    const ratio = (item.count - minCount) / range
+    const topFlex = Math.max(0.001, 1 - ratio)
+    const bottomFlex = Math.max(0.001, ratio)
+
+    return {
+      type: "stack",
+      direction: "column",
+      flex: 1,
+      alignItems: "center",
+      children: [
+        { type: "spacer", flex: topFlex },
+        {
+          type: "stack",
+          width: dotSize,
+          height: dotSize,
+          backgroundColor: chartColor,
+          borderRadius: dotSize / 2,
+          children: []
+        },
+        { type: "spacer", flex: bottomFlex }
+      ]
+    }
+  })
 }
 
-function buildStage0Widget(title) { return { type: "widget", padding: 16, backgroundColor: "#0D1117", children: [{ type: "text", text: `Ready · ${title}`, font: { size: "subheadline" }, textColor: "#FFFFFF" }] } }
+function buildBarChart(records, chartColor, chartHeight) {
+  const safe = normalizeChartRecords(records)
+  if (safe.length === 0) return [buildEmptyChartBar(chartColor, chartHeight)]
 
-function buildStage1Widget(title, repo) { return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" }, { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" }] } }
+  const maxCount = safe.reduce((max, item) => Math.max(max, item.count), safe[0].count)
 
-function buildStage2Widget({ title, repo, total, stale, warning }) { return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" }, { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" }, { type: "text", text: formatNumber(total) + " Stars", font: { size: 34, weight: "heavy" }, textColor: "#FFFFFF" }, { type: "text", text: stale ? `缓存数据 · ${warning}` : "实时数据", font: { size: "caption2" }, textColor: stale ? "#FFC107" : "#8B949E" }] } }
+  return safe.map((item) => {
+    const ratio = maxCount === 0 ? 0 : item.count / maxCount
+    const height = Math.max(2, Math.round(chartHeight * ratio))
+
+    return {
+      type: "stack",
+      direction: "column",
+      alignItems: "center",
+      flex: 1,
+      children: [
+        { type: "spacer" },
+        {
+          type: "stack",
+          width: 6,
+          height,
+          backgroundColor: chartColor,
+          borderRadius: 3,
+          children: []
+        }
+      ]
+    }
+  })
+}
+
+function buildEmptyChartDot(chartColor, chartHeight, dotSize) {
+  return {
+    type: "stack",
+    direction: "column",
+    alignItems: "center",
+    flex: 1,
+    children: [
+      { type: "spacer", flex: 0.7 },
+      { type: "stack", width: dotSize, height: dotSize, backgroundColor: chartColor, borderRadius: dotSize / 2, children: [] },
+      { type: "spacer", flex: 0.3 }
+    ]
+  }
+}
+
+function buildEmptyChartBar(chartColor, chartHeight) {
+  return {
+    type: "stack",
+    direction: "column",
+    alignItems: "center",
+    flex: 1,
+    children: [
+      { type: "spacer" },
+      { type: "stack", width: 6, height: Math.max(2, Math.round(chartHeight * 0.2)), backgroundColor: chartColor, borderRadius: 3, children: [] }
+    ]
+  }
+}
+
+function buildTrendSummary(records) {
+  const safe = normalizeChartRecords(records)
+  if (safe.length < 2) return { deltaText: "", deltaColor: "#30363D" }
+
+  const last = safe[safe.length - 1]
+  const prev = safe[safe.length - 2]
+  const delta = last.count - prev.count
+  if (!Number.isFinite(delta) || delta === 0) return { deltaText: "", deltaColor: "#30363D" }
+
+  const text = delta > 0 ? `+${formatNumber(delta)}` : `${formatNumber(delta)}`
+  const color = delta > 0 ? "#238636" : "#8B949E"
+  return { deltaText: text, deltaColor: color }
+}
+
+function buildRange(records) {
+  const times = records.filter((r) => Number.isFinite(r.time)).map((r) => r.time)
+  if (times.length < 2) return null
+  const minTime = Math.min(...times)
+  const maxTime = Math.max(...times)
+  if (!Number.isFinite(minTime) || !Number.isFinite(maxTime)) return null
+  return `${formatDate(minTime)} → ${formatDate(maxTime)}`
+}
+
+function buildErrorWidget(title, message) {
+  return {
+    type: "widget",
+    padding: 16,
+    gap: 8,
+    backgroundColor: "#0D1117",
+    children: [
+      {
+        type: "stack",
+        direction: "row",
+        alignItems: "center",
+        gap: 6,
+        children: [
+          { type: "image", src: "sf-symbol:exclamationmark.triangle.fill", width: 16, height: 16, color: "#FF6B6B" },
+          { type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FF6B6B" }
+        ]
+      },
+      { type: "text", text: message || "未知错误", font: { size: "caption1" }, textColor: "#FFFFFF", maxLines: 4 }
+    ]
+  }
+}
+
+function buildStage0Widget(title) {
+  return { type: "widget", padding: 16, backgroundColor: "#0D1117", children: [{ type: "text", text: `Ready · ${title}`, font: { size: "subheadline" }, textColor: "#FFFFFF" }] }
+}
+
+function buildStage1Widget(title, repo) {
+  return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" }, { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" }] }
+}
+
+function buildStage2Widget({ title, repo, total, stale, warning }) {
+  return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" }, { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" }, { type: "text", text: formatNumber(total) + " Stars", font: { size: 34, weight: "heavy" }, textColor: "#FFFFFF" }, { type: "text", text: stale ? `缓存数据 · ${warning}` : "实时数据", font: { size: "caption2" }, textColor: stale ? "#FFC107" : "#8B949E" }] }
+}
 
 // ============== 工具函数 ==============
 
 function parseLastPage(headers) {
   let linkStr = ""
-  if (headers && typeof headers.get === 'function') {
-    linkStr = headers.get('link') || headers.get('Link') || ""
+  if (headers && typeof headers.get === "function") {
+    linkStr = headers.get("link") || headers.get("Link") || ""
   } else if (headers) {
     linkStr = headers.link || headers.Link || ""
   }
@@ -240,17 +421,32 @@ function buildSamplePages(totalPages, samplePoints) {
   return uniqueSortedInts(pages)
 }
 
+function buildSampleIndexes(length, samples) {
+  if (length <= 1) return [0]
+  const slots = Math.min(samples, length)
+  const indexes = []
+  if (slots <= 1) return [0]
+  for (let i = 0; i < slots; i++) {
+    indexes.push(Math.round((i / (slots - 1)) * (length - 1)))
+  }
+  return uniqueSortedInts(indexes)
+}
+
 function normalizeRecords(records, samplePoints, total) {
-  const valid = records.filter((r) => r && Number.isFinite(r.count)).map((r) => ({ count: toNonNegativeInt(r.count) }))
-  valid.sort((a, b) => a.count - b.count)
+  const valid = records
+    .filter((r) => r && Number.isFinite(r.count))
+    .map((r) => ({ count: toNonNegativeInt(r.count), time: Number.isFinite(r.time) ? r.time : undefined }))
+
+  const withTime = valid.filter((r) => Number.isFinite(r.time))
+  const base = withTime.length >= 2 ? withTime.sort((a, b) => a.time - b.time) : valid.sort((a, b) => a.count - b.count)
 
   const dedup = []
-  for (const item of valid) {
+  for (const item of base) {
     if (dedup.length === 0 || dedup[dedup.length - 1].count !== item.count) dedup.push(item)
   }
 
   const last = dedup.length > 0 ? dedup[dedup.length - 1] : null
-  if (!last || last.count !== total) dedup.push({ count: total })
+  if (!last || last.count !== total) dedup.push({ count: total, time: last && last.time ? last.time : undefined })
 
   if (dedup.length <= samplePoints) return dedup
 
@@ -259,6 +455,10 @@ function normalizeRecords(records, samplePoints, total) {
     sampled.push(dedup[Math.round((i * (dedup.length - 1)) / (samplePoints - 1))])
   }
   return sampled
+}
+
+function normalizeChartRecords(records) {
+  return Array.isArray(records) ? records.filter((r) => r && Number.isFinite(r.count)) : []
 }
 
 function normalizeRepo(input) {
@@ -274,6 +474,28 @@ function formatNumber(n) {
   return (Number.isFinite(n) ? n : 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")
 }
 
+function formatDate(ts) {
+  try {
+    const date = new Date(ts)
+    if (Number.isNaN(date.getTime())) return "未知"
+    const y = date.getFullYear()
+    const m = `${date.getMonth() + 1}`.padStart(2, "0")
+    return `${y}-${m}`
+  } catch (err) {
+    return "未知"
+  }
+}
+
+function parseStarTime(value) {
+  if (!value) return undefined
+  try {
+    const ts = Date.parse(value)
+    return Number.isFinite(ts) ? ts : undefined
+  } catch (err) {
+    return undefined
+  }
+}
+
 function safeError(err) {
   if (!err) return "未知错误"
   if (typeof err === "string") return err
@@ -284,16 +506,24 @@ function safeError(err) {
 function clampInt(input, fallback, min, max) {
   const n = parseInt(String(input), 10)
   if (!Number.isFinite(n)) return fallback
-  return n < min ? min : (n > max ? max : n)
+  return n < min ? min : n > max ? max : n
+}
+
+function parseBoolean(input, fallback) {
+  if (input === undefined || input === null || input === "") return fallback
+  const value = String(input).toLowerCase().trim()
+  if (["1", "true", "yes", "y", "on"].includes(value)) return true
+  if (["0", "false", "no", "n", "off"].includes(value)) return false
+  return fallback
 }
 
 function toNonNegativeInt(n) {
   const value = parseInt(String(n), 10)
-  return (!Number.isFinite(value) || value < 0) ? 0 : value
+  return !Number.isFinite(value) || value < 0 ? 0 : value
 }
 
 function uniqueSortedInts(values) {
-  const nums = values.filter(v => Number.isFinite(v)).map(v => parseInt(String(v), 10)).filter(v => v > 0)
+  const nums = values.filter((v) => Number.isFinite(v)).map((v) => parseInt(String(v), 10)).filter((v) => v >= 0)
   nums.sort((a, b) => a - b)
   return nums.filter((n, i) => i === 0 || nums[i - 1] !== n)
 }
@@ -302,10 +532,14 @@ function readCache(ctx, key) {
   try {
     const data = ctx.storage.getJSON(key)
     if (!data || !Number.isFinite(data.total) || !Array.isArray(data.records)) return null
-    return { total: toNonNegativeInt(data.total), records: data.records }
-  } catch (err) { return null }
+    return { total: toNonNegativeInt(data.total), records: data.records, range: data.range || null }
+  } catch (err) {
+    return null
+  }
 }
 
 function writeCache(ctx, key, data) {
-  try { ctx.storage.setJSON(key, data) } catch (err) { }
+  try {
+    ctx.storage.setJSON(key, data)
+  } catch (err) { }
 }
