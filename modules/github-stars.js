@@ -180,19 +180,24 @@ export default async function (ctx) {
   starRecords.forEach(r => { if (r.count > maxStar) maxStar = r.count; });
   if (maxStar === 0) maxStar = 1;
 
-  const bars = starRecords.map(record => {
+  const normalizedRecords = starRecords.filter(r => r && Number.isFinite(r.count));
+
+  const bars = normalizedRecords.map(record => {
     const heightPercent = record.count / maxStar;
-    const barWeight = heightPercent > 0.05 ? heightPercent : 0.05;
+    const barWeight = Math.max(0.08, Math.min(1, heightPercent));
+    const topFlex = parseFloat((1 - barWeight).toFixed(3));
+    const bottomFlex = parseFloat(barWeight.toFixed(3));
+
     return {
       type: "stack",
       direction: "column",
+      flex: 1,
       children: [
-        { type: "spacer", flex: parseFloat((1 - barWeight).toFixed(3)) },
+        { type: "spacer", flex: topFlex },
         {
           type: "stack",
-          flex: parseFloat(barWeight.toFixed(3)),
+          flex: bottomFlex,
           backgroundColor: chartColor,
-          opacity: 0.8 + (barWeight * 0.2),
           borderRadius: 2
         }
       ]
@@ -205,7 +210,17 @@ export default async function (ctx) {
       type: "stack",
       direction: "column",
       flex: 1,
-      children: [{ type: "spacer" }]
+      children: [{ type: "spacer", flex: 1 }]
+    });
+  }
+
+  // 兜底：确保图表区域至少有一个可渲染元素
+  if (bars.length === 0) {
+    bars.push({
+      type: "stack",
+      direction: "column",
+      flex: 1,
+      children: [{ type: "spacer", flex: 1 }]
     });
   }
 
@@ -257,7 +272,7 @@ export default async function (ctx) {
             text: formatNumber(currentTotalStars),
             font: { size: 30, weight: "heavy" },
             textColor: "#FFFFFF",
-            minScale: 0.5
+            minScale: 0.7
           },
           {
             type: "stack",
@@ -278,13 +293,10 @@ export default async function (ctx) {
       {
         type: "stack",
         direction: "row",
-        alignItems: "stretch",
+        alignItems: "end",
         flex: 1,
         gap: 4,
-        children: bars.map(bar => {
-          bar.flex = 1;
-          return bar;
-        })
+        children: bars
       }
     ]
   };
