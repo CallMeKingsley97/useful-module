@@ -1,9 +1,9 @@
-// Star-History 小组件 (V6 字符迷你图重构版)
-// 1. 彻底抛弃易崩溃的 Flex 色块，使用极客风的 Unicode Sparkline (字符迷你图) 展现增长曲线，100% 保证渲染。
-// 2. 整体 UI 升级为 GitHub 暗黑风高质感渐变仪表盘。
+// Star-History 小组件 (V7 绝对像素强制渲染 + 里程碑版)
+// 1. 彻底根除宽度塌陷：对柱状图强制使用绝对 width 和 height 像素。
+// 2. 引入 Life-Progress 的成功设计：在底部增加里程碑进度条，丰富组件下方留白。
 
 const PER_PAGE = 100
-const DEFAULT_SAMPLE_POINTS = 18 // 稍微增加采样点，让字符折线更绵长
+const DEFAULT_SAMPLE_POINTS = 15
 
 export default async function (ctx) {
   try {
@@ -17,7 +17,7 @@ async function run(ctx) {
   const env = ctx.env || {}
   const repo = normalizeRepo(env.GITHUB_REPO || "")
   const title = env.TITLE || repo || "GitHub Stars"
-  const chartColor = env.CHART_COLOR || "#E36209" // 默认 GitHub 橙
+  const chartColor = env.CHART_COLOR || "#F9A826" // 改为更亮眼的 GitHub 金黄色
   const samplePoints = clampInt(env.SAMPLE_POINTS, DEFAULT_SAMPLE_POINTS, 3, 30)
   const stage = clampInt(env.RENDER_STAGE, 3, 0, 3)
 
@@ -30,12 +30,13 @@ async function run(ctx) {
   if (stage === 0) return buildStage0Widget(title)
   if (stage === 1) return buildStage1Widget(title, repo)
 
-  const cacheKey = `github_stars_v6_${repo.replace("/", "_")}`
+  const cacheKey = `github_stars_v7_${repo.replace("/", "_")}`
   let data = null
   let stale = false
   let warning = ""
 
   try {
+    // 强制每次刷新加上时间戳，打破 iOS 缓存
     data = await fetchStarData(ctx, repo, samplePoints, token)
     writeCache(ctx, cacheKey, data)
   } catch (err) {
@@ -50,36 +51,46 @@ async function run(ctx) {
   return buildStage3Widget({ title, repo, total: data.total, records: data.records, chartColor, stale, warning })
 }
 
-// ============== 字符迷你图核心算法 ==============
 
-function generateSparkline(records) {
-  if (!records || records.length === 0) return '暂无数据';
-  // Unicode 阶梯方块字符，完美模拟柱状/折线图
-  const ticks = [' ', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-  const counts = records.map(r => r.count);
-  const min = Math.min(...counts);
-  const max = Math.max(...counts);
-  const range = max - min;
-
-  if (range === 0) return ticks[0].repeat(counts.length);
-
-  return counts.map(c => {
-    const ratio = (c - min) / range;
-    const tickIndex = Math.floor(ratio * (ticks.length - 1));
-    return ticks[tickIndex];
-  }).join(''); // 紧密排列，形成连贯波浪
-}
-
-// ============== 核心 UI 渲染层 (高质感仪表盘版) ==============
+// ============== 核心 UI 渲染层 (完美 UI 双保险版) ==============
 
 function buildStage3Widget({ title, repo, total, records, chartColor, stale, warning }) {
-  const safe = Array.isArray(records) ? records.filter((r) => r && Number.isFinite(r.count)) : []
-  const sparklineText = generateSparkline(safe)
+  let safe = Array.isArray(records) ? records.filter((r) => r && Number.isFinite(r.count)) : []
+  
+  // 容错：如果数据太少，铺满成平线避免孤零零的一根柱子
+  if (safe.length === 1) safe = Array(15).fill(safe[0])
+  if (safe.length === 0) safe = Array(15).fill({count: 0})
+  
+  let minCount = Math.min(...safe.map(r => r.count));
+  let maxCount = Math.max(...safe.map(r => r.count));
+  let range = maxCount - minCount;
+  if (range === 0) range = 1; // 避免除以0
+  
+  // 关键修复 1：强制设定每一个柱子的绝对 width 和 height (告别 Flex 塌陷)
+  const bars = safe.map(item => {
+    const ratio = (item.count - minCount) / range;
+    const h = 4 + Math.round(ratio * 26); // 基础高度4px，最高30px
+    return {
+      type: "stack",
+      width: 5,        // 【核心秘籍】绝对宽度！
+      height: h,       // 【核心秘籍】绝对高度！
+      backgroundColor: chartColor,
+      borderRadius: 2,
+      children: []
+    }
+  })
+
+  // 关键修复 2：计算下一阶段里程碑目标，并复刻 life-progress 的底部进度条
+  const milestones = [100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
+  let target = milestones.find(m => total < m) || (total + 5000);
+  const progressRatio = Math.min(1, Math.max(0, total / target));
+  const progressPercent = (progressRatio * 100).toFixed(1);
 
   return {
     type: "widget",
     padding: 16,
-    // 升级1: 深邃渐变背景，更具现代感
+    gap: 12,
+    // 质感提升：深邃的 GitHub 暗黑渐变背景
     backgroundGradient: {
       type: "linear",
       colors: ["#1E2228", "#0D1117"],
@@ -87,76 +98,104 @@ function buildStage3Widget({ title, repo, total, records, chartColor, stale, war
       endPoint: { x: 1, y: 1 }
     },
     children: [
-      // 第一行：Icon 与 仓库名
+      // 第一行：图标与仓库名
       {
         type: "stack",
         direction: "row",
         alignItems: "center",
         gap: 6,
         children: [
-          { type: "image", src: "sf-symbol:star.circle.fill", width: 16, height: 16, color: "#F9A826" },
-          { type: "text", text: repo, font: { size: "subheadline", weight: "medium" }, textColor: "#8B949E" },
+          { type: "image", src: "sf-symbol:star.fill", width: 14, height: 14, color: chartColor },
+          { type: "text", text: repo, font: { size: "subheadline", weight: "semibold" }, textColor: "#FFFFFF" }
         ]
       },
       
       { type: "spacer" },
       
-      // 第二行：大数字总数
+      // 第二行：大数字总数 + 右侧历史趋势柱状图
       {
         type: "stack",
         direction: "row",
-        alignItems: "end",
-        gap: 4,
+        alignItems: "end", 
         children: [
-          { type: "text", text: formatNumber(total), font: { size: 40, weight: "heavy" }, textColor: "#FFFFFF" },
+          // 左侧：数字
           {
             type: "stack",
-            padding: [0, 0, 6, 0],
+            direction: "row",
+            alignItems: "end",
+            gap: 4,
             children: [
-              { type: "text", text: "Stars", font: { size: "footnote", weight: "bold" }, textColor: "#F9A826" }
+              { type: "text", text: formatNumber(total), font: { size: 38, weight: "heavy" }, textColor: "#FFFFFF" },
+              {
+                type: "stack",
+                padding: [0, 0, 6, 0],
+                children: [
+                  { type: "text", text: "Stars", font: { size: "caption1", weight: "bold" }, textColor: "#8B949E" }
+                ]
+              }
             ]
-          }
-        ]
-      },
-      
-      // 第三行：迷你趋势图 (通过字体直接渲染)
-      {
-        type: "stack",
-        direction: "row",
-        alignItems: "end",
-        gap: 8,
-        children: [
-          { 
-            type: "text", 
-            text: sparklineText, 
-            font: { size: 26, weight: "regular" }, 
-            textColor: chartColor 
           },
           { type: "spacer" },
-          // 升级2: 增加右侧绿色的增长趋势角标
+          // 右侧：图表容器 (强锁定高度，内部柱子底部对齐)
           {
-             type: "stack",
-             direction: "row",
-             alignItems: "center",
-             gap: 2,
-             children: [
-               { type: "image", src: "sf-symbol:arrow.up.forward", width: 10, height: 10, color: "#34C759" },
-               { type: "text", text: "Trend", font: { size: "caption2", weight: "bold" }, textColor: "#34C759" }
-             ]
+            type: "stack",
+            direction: "row",
+            alignItems: "end",
+            height: 32, 
+            gap: 3,     
+            children: bars
           }
         ]
       },
 
-      { type: "spacer", height: 6 },
-      
-      // 底部：状态栏
+      // 第三行：目标里程碑进度条 (完美复刻自你的 life-progress 代码)
       {
         type: "stack",
-        direction: "row",
-        alignItems: "center",
+        direction: "column",
+        gap: 6,
         children: [
-          { type: "text", text: stale ? `缓存 · ${warning}` : "实时数据监控中", font: { size: "caption2" }, textColor: stale ? "#FFC107" : "#6E7681", maxLines: 1 }
-        ]
+          {
+            type: "stack",
+            direction: "row",
+            height: 6,
+            borderRadius: 3,
+            backgroundColor: "#FFFFFF20",
+            children: [
+              {
+                type: "stack",
+                flex: Math.max(0.001, progressRatio),
+                height: 6,
+                borderRadius: 3,
+                backgroundColor: chartColor,
+                children: [],
+              },
+              {
+                type: "stack",
+                flex: 1 - progressRatio,
+                children: [],
+              },
+            ],
+          },
+          {
+            type: "stack",
+            direction: "row",
+            children: [
+              {
+                type: "text",
+                text: `目标里程碑: ${formatNumber(target)}`,
+                font: { size: "caption2" },
+                textColor: "#8B949E",
+              },
+              { type: "spacer" },
+              {
+                type: "text",
+                text: `${progressPercent}%`,
+                font: { size: "caption2", weight: "bold" },
+                textColor: "#8B949E",
+              },
+            ],
+          },
+        ],
       }
     ]
   }
@@ -207,7 +246,7 @@ async function fetchStarData(ctx, repo, samplePoints, token) {
   return { total, records: normalizeRecords(records, samplePoints, total) }
 }
 
-// ============== 占位界面与其他工具函数 ==============
+// ============== 占位界面与工具函数 ==============
 
 function buildErrorWidget(title, message) {
   return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "stack", direction: "row", alignItems: "center", gap: 6, children: [{ type: "image", src: "sf-symbol:exclamationmark.triangle.fill", width: 16, height: 16, color: "#FF6B6B" }, { type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FF6B6B" }] }, { type: "text", text: message || "未知错误", font: { size: "caption1" }, textColor: "#FFFFFF", maxLines: 4 }] }
