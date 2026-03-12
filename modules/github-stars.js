@@ -1,7 +1,6 @@
-// Star-History 小组件 (彻底修复白屏与不显示图表版)
-// 1. 移除了导致宽度塌陷的 column嵌套逻辑，采用绝对高度 + align-items: end 绘制图表。
-// 2. 增强了对小 Star 项目 (如 105 stars) 的微观样本采集，确保图表丰满。
-// 3. 增强了 Token 的鲁棒性，自动剔除首尾误填的引号。
+// Star-History 小组件 (V5 纯Flex图表修复版)
+// 1. 彻底解决 iOS 底部对齐导致的宽度塌陷 Bug，改用纯 Flex 纵向分割绘制柱状图。
+// 2. 强制使用 ctx.http 并在 URL 后追加时间戳，打破强缓存并确保能在 Egern 日志中抓到请求。
 
 const PER_PAGE = 100
 const DEFAULT_SAMPLE_POINTS = 15
@@ -22,7 +21,7 @@ async function run(ctx) {
   const samplePoints = clampInt(env.SAMPLE_POINTS, DEFAULT_SAMPLE_POINTS, 3, 30)
   const stage = clampInt(env.RENDER_STAGE, 3, 0, 3)
 
-  // 过滤用户可能不小心复制进去的单双引号或空格
+  // 清洗 Token，防止误填引号
   let token = (env.GITHUB_TOKEN || "").replace(/['"]/g, '').trim()
 
   if (!repo) {
@@ -32,7 +31,7 @@ async function run(ctx) {
   if (stage === 0) return buildStage0Widget(title)
   if (stage === 1) return buildStage1Widget(title, repo)
 
-  const cacheKey = `github_stars_v4_${repo.replace("/", "_")}`
+  const cacheKey = `github_stars_v5_${repo.replace("/", "_")}`
   let data = null
   let stale = false
   let warning = ""
@@ -52,31 +51,27 @@ async function run(ctx) {
   return buildStage3Widget({ title, repo, total: data.total, records: data.records, chartColor, stale, warning })
 }
 
-// ============== 网络请求层 ==============
-// ============== 强制使用 Egern 网络通道并禁用缓存 ==============
+// ============== 网络请求层 (防缓存强化版) ==============
+
 async function fetchJsonWithHeaders(ctx, url, headers) {
-  // 1. 生成时间戳，破坏任何可能存在的系统级 HTTP 缓存
+  // 追加时间戳，彻底打破 iOS 和 Egern 的任何网络层缓存
   const noCacheUrl = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
 
-  // 2. 移除原生 fetch，强制使用 Egern 的 ctx.http，确保能在日志中看到请求
   if (ctx && ctx.http && typeof ctx.http.get === 'function') {
     try {
-      const resp = await ctx.http.get(noCacheUrl, { headers });
-      if (!resp || resp.status !== 200) throw new Error(`HTTP ${resp ? resp.status : "unknown"}`);
-      return { body: await resp.json(), headers: resp.headers || {} };
+      const resp = await ctx.http.get(noCacheUrl, { headers })
+      if (!resp || resp.status !== 200) throw new Error(`HTTP ${resp ? resp.status : "unknown"}`)
+      return { body: await resp.json(), headers: resp.headers || {} }
     } catch (err) {
-      throw new Error(`请求失败: ${safeError(err)}`);
+      throw new Error(`请求失败: ${safeError(err)}`)
     }
   }
-
-  throw new Error("当前环境不支持 ctx.http 网络请求");
+  throw new Error("当前环境不支持 ctx.http 网络请求")
 }
 
 async function fetchStarData(ctx, repo, samplePoints, token) {
   const baseHeaders = { "User-Agent": "Egern-Widget-Client" }
-  if (token) {
-    baseHeaders.Authorization = `Bearer ${token}` // 使用 Bearer 对 PATs 更友好
-  }
+  if (token) baseHeaders.Authorization = `Bearer ${token}`
 
   const starHeaders = { ...baseHeaders, Accept: "application/vnd.github.v3.star+json" }
 
@@ -96,7 +91,7 @@ async function fetchStarData(ctx, repo, samplePoints, token) {
       let pageData = page === 1 ? firstPageData : (await fetchJsonWithHeaders(ctx, `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=${page}`, starHeaders)).body
 
       if (Array.isArray(pageData) && pageData.length > 0) {
-        // 微观采样：即便只有一页(比如100个star)，也能从中切片提取多个点位画出丰满的图表
+        // 微观采样：切片提取多个点位
         const step = Math.max(1, Math.floor(pageData.length / 4))
         for (let i = 0; i < pageData.length; i += step) {
           records.push({ count: (page - 1) * PER_PAGE + i + 1 })
@@ -108,32 +103,47 @@ async function fetchStarData(ctx, repo, samplePoints, token) {
     }
   }
 
-  records.push({ count: total }) // 确保最后一点是准确的总量
+  records.push({ count: total })
   return { total, records: normalizeRecords(records, samplePoints, total) }
 }
 
-// ============== 核心 UI 渲染层 ==============
+// ============== 核心 UI 渲染层 (完美修复塌陷Bug) ==============
 
 function buildStage3Widget({ title, repo, total, records, chartColor, stale, warning }) {
   const safe = Array.isArray(records) ? records.filter((r) => r && Number.isFinite(r.count)) : []
   let maxCount = safe.reduce((max, item) => Math.max(max, item.count), 1)
 
-  // 完美修复 0 宽度塌陷 Bug：直接计算绝对高度，放入 row 布局并底端对齐
+  // 关键修复：用两个 Flex 色块互相推挤的方式画柱子，抛弃绝对高度和 alignItems
   const bars = safe.map(item => {
     const ratio = item.count / maxCount
-    const h = Math.max(4, Math.round(ratio * 40)) // 最小高度 4px，最大高度 40px
+    const filled = Math.max(0.001, ratio)       // 避免 flex 为 0 引发崩溃
+    const empty = Math.max(0.001, 1 - ratio)
+
     return {
       type: "stack",
-      flex: 1, // 兄弟元素平分所有水平宽度
-      height: h, // 绝对高度
-      backgroundColor: chartColor,
-      borderRadius: 2,
-      children: []
+      direction: "column",
+      flex: 1, // 横向上平分所有宽度
+      gap: 0,
+      children: [
+        {
+          type: "stack",
+          flex: empty, // 上半部分：透明留白
+          children: []
+        },
+        {
+          type: "stack",
+          flex: filled, // 下半部分：有颜色的柱体
+          backgroundColor: chartColor,
+          borderRadius: 2,
+          children: []
+        }
+      ]
     }
   })
 
+  // 如果没有数据，渲染一根灰色的平底占位条
   if (bars.length === 0) {
-    bars.push({ type: "stack", flex: 1, height: 40, backgroundColor: "#30363D", borderRadius: 2, children: [] })
+    bars.push({ type: "stack", direction: "column", flex: 1, children: [{ type: "stack", flex: 0.95, children: [] }, { type: "stack", flex: 0.05, backgroundColor: "#30363D", borderRadius: 2, children: [] }] })
   }
 
   return {
@@ -170,13 +180,12 @@ function buildStage3Widget({ title, repo, total, records, chartColor, stale, war
           }
         ]
       },
-      // 就是这里！依靠 alignItems: "end" 把刚才算好高度的柱形统一按在底部对齐
+      // 图表容器：高度固定为 40，内部的 Column Bars 会自然地充满这个高度
       {
         type: "stack",
         direction: "row",
-        alignItems: "end",
         height: 40,
-        gap: 4,
+        gap: 3,
         children: bars
       },
       {
@@ -192,38 +201,14 @@ function buildStage3Widget({ title, repo, total, records, chartColor, stale, war
 }
 
 function buildErrorWidget(title, message) {
-  return {
-    type: "widget",
-    padding: 16,
-    gap: 8,
-    backgroundColor: "#0D1117",
-    children: [
-      {
-        type: "stack",
-        direction: "row",
-        alignItems: "center",
-        gap: 6,
-        children: [
-          { type: "image", src: "sf-symbol:exclamationmark.triangle.fill", width: 16, height: 16, color: "#FF6B6B" },
-          { type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FF6B6B" }
-        ]
-      },
-      { type: "text", text: message || "未知错误", font: { size: "caption1" }, textColor: "#FFFFFF", maxLines: 4 }
-    ]
-  }
+  return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "stack", direction: "row", alignItems: "center", gap: 6, children: [{ type: "image", src: "sf-symbol:exclamationmark.triangle.fill", width: 16, height: 16, color: "#FF6B6B" }, { type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FF6B6B" }] }, { type: "text", text: message || "未知错误", font: { size: "caption1" }, textColor: "#FFFFFF", maxLines: 4 }] }
 }
 
-function buildStage0Widget(title) {
-  return { type: "widget", padding: 16, backgroundColor: "#0D1117", children: [{ type: "text", text: `Ready · ${title}`, font: { size: "subheadline" }, textColor: "#FFFFFF" }] }
-}
+function buildStage0Widget(title) { return { type: "widget", padding: 16, backgroundColor: "#0D1117", children: [{ type: "text", text: `Ready · ${title}`, font: { size: "subheadline" }, textColor: "#FFFFFF" }] } }
 
-function buildStage1Widget(title, repo) {
-  return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" }, { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" }] }
-}
+function buildStage1Widget(title, repo) { return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" }, { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" }] } }
 
-function buildStage2Widget({ title, repo, total, stale, warning }) {
-  return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" }, { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" }, { type: "text", text: formatNumber(total) + " Stars", font: { size: 34, weight: "heavy" }, textColor: "#FFFFFF" }, { type: "text", text: stale ? `缓存数据 · ${warning}` : "实时数据", font: { size: "caption2" }, textColor: stale ? "#FFC107" : "#8B949E" }] }
-}
+function buildStage2Widget({ title, repo, total, stale, warning }) { return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" }, { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" }, { type: "text", text: formatNumber(total) + " Stars", font: { size: 34, weight: "heavy" }, textColor: "#FFFFFF" }, { type: "text", text: stale ? `缓存数据 · ${warning}` : "实时数据", font: { size: "caption2" }, textColor: stale ? "#FFC107" : "#8B949E" }] } }
 
 // ============== 工具函数 ==============
 
@@ -318,13 +303,9 @@ function readCache(ctx, key) {
     const data = ctx.storage.getJSON(key)
     if (!data || !Number.isFinite(data.total) || !Array.isArray(data.records)) return null
     return { total: toNonNegativeInt(data.total), records: data.records }
-  } catch (err) {
-    return null
-  }
+  } catch (err) { return null }
 }
 
 function writeCache(ctx, key, data) {
-  try {
-    ctx.storage.setJSON(key, data)
-  } catch (err) { }
+  try { ctx.storage.setJSON(key, data) } catch (err) { }
 }
