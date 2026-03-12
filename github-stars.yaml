@@ -1,24 +1,34 @@
-name: "Star-History 面板"
-description: "显示 GitHub 仓库实时 Star 数量并可切换查看星标历史图"
+name: "GitHub Stars"
+description: "多仓库 Star 数量追踪面板，支持科技感暗黑主题"
 author: "kingsley"
 scriptings:
-# GitHub Star-History 面板
-# env:
-#   GITHUB_REPO     - 需要追踪的仓库路径，必填，例如 "vuejs/vue" 或完整链接 "https://github.com/vuejs/vue"
-#   TITLE           - 自定义标题，可选，默认显示仓库名
-#   CHART_COLOR     - 面板高亮色，默认 "#E36209" (Star-History 品牌橙色)
-#   CHART_STYLE     - 图表样式，"line" 曲线或 "bar" 柱状，默认 line
-#   SAMPLE_POINTS   - 采样点数量 (6-36)，默认 18
-#   SAMPLES_PER_PAGE- 每页采样点数量 (1-6)，默认 3
-#   CHART_HEIGHT    - 图表高度 (28-80)，默认 46
-#   DOT_SIZE        - 曲线点大小 (3-8)，默认 4
-#   SHOW_RANGE      - 是否显示时间范围 true/false，默认 true
-#   RENDER_STAGE    - 渲染阶段 (0-3) 调试用，默认 3
+# ┌─────────────────────────────────────────────────────┐
+# │              GitHub Stars 小组件配置说明              │
+# ├─────────────────────────────────────────────────────┤
+# │ 环境变量 (env):                                      │
+# │                                                     │
+# │ REPOS (必填)                                         │
+# │   要追踪的 GitHub 仓库列表，用英文逗号分隔             │
+# │   支持两种格式：                                      │
+# │   - 短格式: "vuejs/vue,facebook/react"               │
+# │   - 完整 URL: "https://github.com/vuejs/vue"         │
+# │                                                     │
+# │ GITHUB_TOKEN (推荐)                                   │
+# │   GitHub Personal Access Token                      │
+# │   未配置时每小时限 60 次请求，配置后提升至 5000 次     │
+# │   申请地址: https://github.com/settings/tokens       │
+# │                                                     │
+# │ ACCENT_COLOR (可选，默认 "#58A6FF")                   │
+# │   主题强调色，用于高亮和装饰元素                       │
+# │                                                     │
+# │ TITLE (可选，默认 "GitHub Stars")                     │
+# │   小组件顶部标题文本                                  │
+# └─────────────────────────────────────────────────────┘
 - generic:
-    name: Star-History
+    name: github-stars
     script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/main/modules/github-stars.js
-    timeout: 60
+    timeout: 30
 
 widgets:
-- name: Star-History 面板
-  script_name: Star-History
+- name: GitHub Stars
+  script_name: github-stars
