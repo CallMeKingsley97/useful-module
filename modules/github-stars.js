@@ -1,7 +1,7 @@
-// Star-History 小组件 (修复重构版)
-// 1. 修复了 WidgetKit 底层解析 stretch 的崩溃白屏 Bug
-// 2. 完美对齐了 life-progress 的扁平化声明式 UI 规范
-// 3. 增强了网络请求的兼容性
+// Star-History 小组件 (彻底修复白屏与不显示图表版)
+// 1. 移除了导致宽度塌陷的 column嵌套逻辑，采用绝对高度 + align-items: end 绘制图表。
+// 2. 增强了对小 Star 项目 (如 105 stars) 的微观样本采集，确保图表丰满。
+// 3. 增强了 Token 的鲁棒性，自动剔除首尾误填的引号。
 
 const PER_PAGE = 100
 const DEFAULT_SAMPLE_POINTS = 15
@@ -21,16 +21,18 @@ async function run(ctx) {
   const chartColor = env.CHART_COLOR || "#E36209"
   const samplePoints = clampInt(env.SAMPLE_POINTS, DEFAULT_SAMPLE_POINTS, 3, 30)
   const stage = clampInt(env.RENDER_STAGE, 3, 0, 3)
-  const token = env.GITHUB_TOKEN || ""
+
+  // 过滤用户可能不小心复制进去的单双引号或空格
+  let token = (env.GITHUB_TOKEN || "").replace(/['"]/g, '').trim()
 
   if (!repo) {
-    return buildErrorWidget("配置缺失", "请设置环境变量 GITHUB_REPO，如 vuejs/vue")
+    return buildErrorWidget("配置缺失", "请设置环境变量 GITHUB_REPO，如 egerndaddy/quick-start")
   }
 
   if (stage === 0) return buildStage0Widget(title)
   if (stage === 1) return buildStage1Widget(title, repo)
 
-  const cacheKey = `github_stars_v3_${repo.replace("/", "_")}`
+  const cacheKey = `github_stars_v4_${repo.replace("/", "_")}`
   let data = null
   let stale = false
   let warning = ""
@@ -50,44 +52,44 @@ async function run(ctx) {
   return buildStage3Widget({ title, repo, total: data.total, records: data.records, chartColor, stale, warning })
 }
 
-// ============== 网络请求层 (增强兼容性) ==============
+// ============== 网络请求层 ==============
 
 async function fetchJsonWithHeaders(ctx, url, headers) {
-  // 优先尝试使用现代原生的 fetch
   if (typeof fetch !== "undefined") {
     try {
       const resp = await fetch(url, { headers })
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       return { body: await resp.json(), headers: resp.headers }
     } catch (err) {
-      throw new Error(`Fetch 请求失败: ${safeError(err)}`)
+      throw new Error(`Fetch 失败: ${safeError(err)}`)
     }
   }
 
-  // 备用：尝试使用 ctx.http
   if (ctx && ctx.http && typeof ctx.http.get === 'function') {
     try {
       const resp = await ctx.http.get(url, { headers })
       if (!resp || resp.status !== 200) throw new Error(`HTTP ${resp ? resp.status : "unknown"}`)
       return { body: await resp.json(), headers: resp.headers || {} }
     } catch (err) {
-      throw new Error(`ctx.http 请求失败: ${safeError(err)}`)
+      throw new Error(`请求失败: ${safeError(err)}`)
     }
   }
 
-  throw new Error("当前环境不支持 fetch 或 ctx.http 网络请求")
+  throw new Error("当前环境不支持网络请求")
 }
 
 async function fetchStarData(ctx, repo, samplePoints, token) {
   const baseHeaders = { "User-Agent": "Egern-Widget-Client" }
-  if (token) baseHeaders.Authorization = `token ${token}`
+  if (token) {
+    baseHeaders.Authorization = `Bearer ${token}` // 使用 Bearer 对 PATs 更友好
+  }
 
   const starHeaders = { ...baseHeaders, Accept: "application/vnd.github.v3.star+json" }
 
   const repoResp = await fetchJsonWithHeaders(ctx, `https://api.github.com/repos/${repo}`, baseHeaders)
   const total = toNonNegativeInt(repoResp.body && repoResp.body.stargazers_count)
 
-  if (total === 0) return { total: 0, records: [{ count: 0, date: new Date().toISOString() }] }
+  if (total === 0) return { total: 0, records: [{ count: 0 }] }
 
   const firstPageResp = await fetchJsonWithHeaders(ctx, `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=1`, starHeaders)
   const firstPageData = Array.isArray(firstPageResp.body) ? firstPageResp.body : []
@@ -99,51 +101,53 @@ async function fetchStarData(ctx, repo, samplePoints, token) {
     try {
       let pageData = page === 1 ? firstPageData : (await fetchJsonWithHeaders(ctx, `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=${page}`, starHeaders)).body
 
-      if (Array.isArray(pageData) && pageData.length > 0 && pageData[0].starred_at) {
-        records.push({ count: Math.max(0, (page - 1) * PER_PAGE + 1), date: pageData[0].starred_at })
+      if (Array.isArray(pageData) && pageData.length > 0) {
+        // 微观采样：即便只有一页(比如100个star)，也能从中切片提取多个点位画出丰满的图表
+        const step = Math.max(1, Math.floor(pageData.length / 4))
+        for (let i = 0; i < pageData.length; i += step) {
+          records.push({ count: (page - 1) * PER_PAGE + i + 1 })
+        }
+        records.push({ count: (page - 1) * PER_PAGE + pageData.length })
       }
     } catch (pageErr) {
       console.log(`[github-stars] skipped page ${page}: ${safeError(pageErr)}`)
     }
   }
 
-  records.push({ count: total, date: new Date().toISOString() })
+  records.push({ count: total }) // 确保最后一点是准确的总量
   return { total, records: normalizeRecords(records, samplePoints, total) }
 }
 
-// ============== 核心 UI 渲染层 (已修复 WidgetKit Bug) ==============
+// ============== 核心 UI 渲染层 ==============
 
 function buildStage3Widget({ title, repo, total, records, chartColor, stale, warning }) {
   const safe = Array.isArray(records) ? records.filter((r) => r && Number.isFinite(r.count)) : []
   let maxCount = safe.reduce((max, item) => Math.max(max, item.count), 1)
 
-  // 修复：移除会引发 stretch 崩溃的跨轴包裹属性，直接用纯粹的 flex 块
+  // 完美修复 0 宽度塌陷 Bug：直接计算绝对高度，放入 row 布局并底端对齐
   const bars = safe.map(item => {
     const ratio = item.count / maxCount
+    const h = Math.max(4, Math.round(ratio * 40)) // 最小高度 4px，最大高度 40px
     return {
       type: "stack",
-      direction: "column",
-      flex: 1,
-      gap: 0,
-      children: [
-        { type: "stack", flex: Math.max(0.001, 1 - ratio), children: [] },
-        { type: "stack", flex: Math.max(0.001, ratio), backgroundColor: chartColor, borderRadius: 2, children: [] }
-      ]
+      flex: 1, // 兄弟元素平分所有水平宽度
+      height: h, // 绝对高度
+      backgroundColor: chartColor,
+      borderRadius: 2,
+      children: []
     }
   })
 
-  // 如果没有数据，给一个占位符避免空数组崩溃
   if (bars.length === 0) {
-    bars.push({ type: "stack", flex: 1, backgroundColor: "#30363D", borderRadius: 2, children: [] })
+    bars.push({ type: "stack", flex: 1, height: 40, backgroundColor: "#30363D", borderRadius: 2, children: [] })
   }
 
   return {
     type: "widget",
     padding: 16,
-    gap: 12, // 对齐 life-progress 的全局间距
+    gap: 12,
     backgroundColor: "#0D1117",
     children: [
-      // 1. 标题区
       {
         type: "stack",
         direction: "row",
@@ -156,8 +160,6 @@ function buildStage3Widget({ title, repo, total, records, chartColor, stale, war
           { type: "text", text: repo, font: { size: "caption2" }, textColor: "#8B949E" }
         ]
       },
-
-      // 2. 大数字区
       {
         type: "stack",
         direction: "row",
@@ -174,8 +176,7 @@ function buildStage3Widget({ title, repo, total, records, chartColor, stale, war
           }
         ]
       },
-
-      // 3. 柱状图展示区
+      // 就是这里！依靠 alignItems: "end" 把刚才算好高度的柱形统一按在底部对齐
       {
         type: "stack",
         direction: "row",
@@ -184,8 +185,6 @@ function buildStage3Widget({ title, repo, total, records, chartColor, stale, war
         gap: 4,
         children: bars
       },
-
-      // 4. 底部状态提示
       {
         type: "stack",
         direction: "row",
@@ -221,59 +220,29 @@ function buildErrorWidget(title, message) {
 }
 
 function buildStage0Widget(title) {
-  return {
-    type: "widget",
-    padding: 16,
-    backgroundColor: "#0D1117",
-    children: [
-      { type: "text", text: `Star-History Ready · ${title}`, font: { size: "subheadline", weight: "semibold" }, textColor: "#FFFFFF" }
-    ]
-  }
+  return { type: "widget", padding: 16, backgroundColor: "#0D1117", children: [{ type: "text", text: `Ready · ${title}`, font: { size: "subheadline" }, textColor: "#FFFFFF" }] }
 }
 
 function buildStage1Widget(title, repo) {
-  return {
-    type: "widget",
-    padding: 16,
-    gap: 8,
-    backgroundColor: "#0D1117",
-    children: [
-      { type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" },
-      { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" }
-    ]
-  }
+  return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" }, { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" }] }
 }
 
 function buildStage2Widget({ title, repo, total, stale, warning }) {
-  return {
-    type: "widget",
-    padding: 16,
-    gap: 8,
-    backgroundColor: "#0D1117",
-    children: [
-      { type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" },
-      { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" },
-      { type: "text", text: formatNumber(total) + " Stars", font: { size: 34, weight: "heavy" }, textColor: "#FFFFFF" },
-      { type: "text", text: stale ? `缓存数据 · ${warning}` : "实时数据", font: { size: "caption2" }, textColor: stale ? "#FFC107" : "#8B949E" }
-    ]
-  }
+  return { type: "widget", padding: 16, gap: 8, backgroundColor: "#0D1117", children: [{ type: "text", text: title, font: { size: "headline", weight: "bold" }, textColor: "#FFFFFF" }, { type: "text", text: repo, font: { size: "caption1" }, textColor: "#8B949E" }, { type: "text", text: formatNumber(total) + " Stars", font: { size: 34, weight: "heavy" }, textColor: "#FFFFFF" }, { type: "text", text: stale ? `缓存数据 · ${warning}` : "实时数据", font: { size: "caption2" }, textColor: stale ? "#FFC107" : "#8B949E" }] }
 }
 
 // ============== 工具函数 ==============
 
 function parseLastPage(headers) {
-  // 兼容 fetch Headers 对象和普通 JS Object
   let linkStr = ""
   if (headers && typeof headers.get === 'function') {
     linkStr = headers.get('link') || headers.get('Link') || ""
   } else if (headers) {
     linkStr = headers.link || headers.Link || ""
   }
-
   if (!linkStr) return 1
   const match = linkStr.match(/[?&]page=(\d+)>;\s*rel="last"/)
   if (!match || !match[1]) return 1
-
   const n = parseInt(match[1], 10)
   return Number.isFinite(n) && n > 0 ? n : 1
 }
@@ -293,8 +262,7 @@ function buildSamplePages(totalPages, samplePoints) {
 }
 
 function normalizeRecords(records, samplePoints, total) {
-  const valid = records.filter((r) => r && Number.isFinite(r.count))
-    .map((r) => ({ count: toNonNegativeInt(r.count), date: typeof r.date === "string" ? r.date : new Date().toISOString() }))
+  const valid = records.filter((r) => r && Number.isFinite(r.count)).map((r) => ({ count: toNonNegativeInt(r.count) }))
   valid.sort((a, b) => a.count - b.count)
 
   const dedup = []
@@ -303,7 +271,8 @@ function normalizeRecords(records, samplePoints, total) {
   }
 
   const last = dedup.length > 0 ? dedup[dedup.length - 1] : null
-  if (!last || last.count !== total) dedup.push({ count: total, date: new Date().toISOString() })
+  if (!last || last.count !== total) dedup.push({ count: total })
+
   if (dedup.length <= samplePoints) return dedup
 
   const sampled = []
