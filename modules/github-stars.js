@@ -53,29 +53,23 @@ async function run(ctx) {
 }
 
 // ============== 网络请求层 ==============
-
+// ============== 强制使用 Egern 网络通道并禁用缓存 ==============
 async function fetchJsonWithHeaders(ctx, url, headers) {
-  if (typeof fetch !== "undefined") {
-    try {
-      const resp = await fetch(url, { headers })
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-      return { body: await resp.json(), headers: resp.headers }
-    } catch (err) {
-      throw new Error(`Fetch 失败: ${safeError(err)}`)
-    }
-  }
+  // 1. 生成时间戳，破坏任何可能存在的系统级 HTTP 缓存
+  const noCacheUrl = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
 
+  // 2. 移除原生 fetch，强制使用 Egern 的 ctx.http，确保能在日志中看到请求
   if (ctx && ctx.http && typeof ctx.http.get === 'function') {
     try {
-      const resp = await ctx.http.get(url, { headers })
-      if (!resp || resp.status !== 200) throw new Error(`HTTP ${resp ? resp.status : "unknown"}`)
-      return { body: await resp.json(), headers: resp.headers || {} }
+      const resp = await ctx.http.get(noCacheUrl, { headers });
+      if (!resp || resp.status !== 200) throw new Error(`HTTP ${resp ? resp.status : "unknown"}`);
+      return { body: await resp.json(), headers: resp.headers || {} };
     } catch (err) {
-      throw new Error(`请求失败: ${safeError(err)}`)
+      throw new Error(`请求失败: ${safeError(err)}`);
     }
   }
 
-  throw new Error("当前环境不支持网络请求")
+  throw new Error("当前环境不支持 ctx.http 网络请求");
 }
 
 async function fetchStarData(ctx, repo, samplePoints, token) {
