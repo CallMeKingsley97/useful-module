@@ -12,7 +12,7 @@ scriptings:
 #   COLOR_2         - 渐变结束色，默认 "#FEB47B"
 - generic:
     name: 人生进度
-    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/modules/life-progress.js
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/main/modules/life-progress.js
 
 widgets:
 - name: 人生进度
