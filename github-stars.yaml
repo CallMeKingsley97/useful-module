@@ -9,7 +9,7 @@ scriptings:
 #   CHART_COLOR - 面板高亮色，默认 "#E36209" (Star-History 品牌橙色)
 - generic:
     name: Star-History
-    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/modules/github-stars.js
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/main/modules/github-stars.js
     timeout: 30
 
 widgets:
