@@ -261,7 +261,6 @@ function buildStage1Widget(title, repo) {
       {
         type: "stack",
         direction: "column",
-        alignItems: "start",
         gap: 8,
         children: [
           {
@@ -291,7 +290,6 @@ function buildStage2Widget({ title, repo, total, stale, warning }) {
       {
         type: "stack",
         direction: "column",
-        alignItems: "start",
         gap: 8,
         children: [
           {
@@ -337,7 +335,6 @@ function buildStage3Widget({ title, repo, total, records, chartColor, stale, war
       {
         type: "stack",
         direction: "column",
-        alignItems: "start",
         gap: 10,
         children: [
           {
@@ -413,7 +410,6 @@ function buildBars(records, chartColor) {
     bars.push({
       type: "stack",
       direction: "column",
-      alignItems: "center",
       flex: 1,
       children: [
         { type: "stack", flex: empty, children: [] },
@@ -440,7 +436,6 @@ function buildErrorWidget(title, message) {
       {
         type: "stack",
         direction: "column",
-        alignItems: "start",
         gap: 8,
         children: [
           {
