@@ -1,6 +1,6 @@
-// Star-History (原生采样版) 面板小组件
-// 纯依靠本地原生 JS 实现，彻底移植了著名的星标历史全尺度“对数截断点抽样”算法！
-// 支持数以万计甚至百万计的大型仓库平滑请求和性能优化，最终以动态“渐变短阵列柱状波段 (Wave Chart)”绘制最长达数年的关注增长。
+// Star-History (串行抽样版) 面板小组件
+// 纯依靠本地原生 JS 实现，移植了星标历史"均匀截断点抽样"算法。
+// 为避免 iOS 小组件内存限制导致 OOM，采用串行请求 + 即时丢弃策略。
 
 export default async function (ctx) {
   const env = ctx.env;
@@ -15,11 +15,10 @@ export default async function (ctx) {
   }
 
   const title = env.TITLE || repo;
-  // 品牌高对比图表色
   const chartColor = env.CHART_COLOR || "#FF7E5F";
   // 抽样点数量：推荐 15 左右即可完美兼容 Egern 横向空间
   const SAMPLE_POINTS = parseInt(env.SAMPLE_POINTS || "15", 10);
-  const GITHUB_TOKEN = env.GITHUB_TOKEN || ""; // 可选，能增加速率限频
+  const GITHUB_TOKEN = env.GITHUB_TOKEN || "";
 
   if (!repo) {
     return buildErrorWidget("未配置环境参数 GITHUB_REPO", "例如 'vuejs/vue'");
@@ -28,130 +27,139 @@ export default async function (ctx) {
   const CACHE_KEY = `github_stars_wave_${repo}`;
   const PER_PAGE = 100;
 
-  let starRecords = []; // 抽样记录 {count: 数字, date: 'yyyy/MM/dd'}
+  let starRecords = [];
   let currentTotalStars = 0;
   let chartLoaded = false;
   let errorMsg = "";
 
   try {
-    // 【 步骤 1 】请求 Repo 最新实时总状态 (顺便获取总 Stars)
-    const baseHeaders = {
-      "Accept": "application/vnd.github.v3.star+json",
-      "User-Agent": "Egern-Widget-Client"
-    };
+    // token header 独立提取，按需注入
+    const tokenHeader = {};
     if (GITHUB_TOKEN) {
-      baseHeaders["Authorization"] = `token ${GITHUB_TOKEN}`;
+      tokenHeader["Authorization"] = `token ${GITHUB_TOKEN}`;
     }
 
+    // stargazer 专用 header（需要 starred_at 字段）
+    const starHeaders = {
+      "Accept": "application/vnd.github.v3.star+json",
+      "User-Agent": "Egern-Widget-Client",
+      ...tokenHeader
+    };
+
+    // repo info 请求使用标准 header（不需要 star+json 格式，减少响应体积）
+    const repoHeaders = {
+      "User-Agent": "Egern-Widget-Client",
+      ...tokenHeader
+    };
+
+    // 【步骤 1】获取仓库基本信息（含 stargazers_count）
     const repoInfoReq = await ctx.http.get(`https://api.github.com/repos/${repo}`, {
-      headers: baseHeaders
+      headers: repoHeaders
     });
 
     if (repoInfoReq.status !== 200) {
-      throw new Error(`API 异常, 仓库未找到或限流 (Status ${repoInfoReq.status})`);
+      throw new Error(`API 异常 (Status ${repoInfoReq.status})`);
     }
     const repoInfoData = await repoInfoReq.json();
     currentTotalStars = repoInfoData.stargazers_count;
 
-    // 【 步骤 2 】请求 Stargazers 首页，提取 Link Headers 分页
-    // 如果没有任何星星，直接返回
     if (currentTotalStars === 0) {
       starRecords = [{ count: 0, date: new Date().toISOString() }];
       chartLoaded = true;
     } else {
-      const firstPageReq = await ctx.http.get(`https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=1`, {
-        headers: baseHeaders
+      // 【步骤 2】请求 stargazers 首页，通过 Link header 获取总页数
+      const firstPageReq = await ctx.http.get(
+        `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=1`,
+        { headers: starHeaders }
+      );
+
+      if (firstPageReq.status !== 200) {
+        throw new Error(`无法获取 stargazers 列表 (Status ${firstPageReq.status})`);
+      }
+
+      let totalPages = 1;
+      const linkHeader = firstPageReq.headers && (firstPageReq.headers["link"] || firstPageReq.headers["Link"]);
+      if (linkHeader) {
+        // 正确提取 rel="last" 对应的 page 值
+        const match = linkHeader.match(/[?&]page=(\d+)>;\s*rel="last"/);
+        if (match && match[1]) {
+          totalPages = parseInt(match[1], 10);
+        }
+      }
+
+      // 从首页数据中提取第一个抽样点（避免浪费已有数据）
+      let firstPageData = null;
+      try {
+        firstPageData = await firstPageReq.json();
+      } catch (e) { /* ignore */ }
+
+      // 【步骤 3】计算抽样页码
+      let requestPages = [];
+      if (totalPages <= SAMPLE_POINTS) {
+        for (let i = 1; i <= totalPages; i++) requestPages.push(i);
+      } else {
+        for (let i = 1; i < SAMPLE_POINTS; i++) {
+          requestPages.push(Math.round((i * totalPages) / SAMPLE_POINTS));
+        }
+      }
+
+      if (!requestPages.includes(1)) requestPages.unshift(1);
+      if (requestPages[requestPages.length - 1] > totalPages) {
+        requestPages.pop();
+      }
+      requestPages = [...new Set(requestPages)];
+
+      // 【步骤 4】串行请求各抽样页，即时提取后丢弃完整数据（控制内存峰值）
+      starRecords = [];
+
+      for (const page of requestPages) {
+        try {
+          let pageData = null;
+
+          // 第 1 页已经请求过了，直接复用
+          if (page === 1 && firstPageData) {
+            pageData = firstPageData;
+            firstPageData = null; // 用完即释放
+          } else {
+            const req = await ctx.http.get(
+              `https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=${page}`,
+              { headers: starHeaders }
+            );
+            if (req.status === 200) {
+              pageData = await req.json();
+            }
+          }
+
+          if (pageData && pageData.length > 0) {
+            // 只提取需要的两个值，pageData 在块作用域结束后即可被 GC
+            starRecords.push({
+              count: PER_PAGE * (page - 1),
+              date: pageData[0].starred_at
+            });
+          }
+        } catch (e) {
+          // 单页失败不影响整体（可能是限流等临时问题）
+        }
+      }
+
+      // 释放首页数据引用
+      firstPageData = null;
+
+      // 追加当前真实总数作为最后一个数据点
+      starRecords.push({
+        count: currentTotalStars,
+        date: new Date().toISOString()
       });
 
-      if (firstPageReq.status === 200) {
-        let totalPages = 1;
-        const linkHeader = firstPageReq.headers && (firstPageReq.headers["link"] || firstPageReq.headers["Link"]);
-        if (linkHeader) {
-          // 正则嗅探，例如提取 `<url?page=400>; rel="last"` 中的 400
-          const match = linkHeader.match(/next.*&page=(\d*).*last/);
-          if (match && match[1]) {
-            totalPages = parseInt(match[1], 10);
-          }
-        }
-        
-        // 【 步骤 3 】对 1 ~ totalPages 进行均匀抽样分布
-        let requestPages = [];
-        if (totalPages <= SAMPLE_POINTS) {
-          for (let i = 1; i <= totalPages; i++) requestPages.push(i);
-        } else {
-          // Math.round 散列插值
-          for (let i = 1; i < SAMPLE_POINTS; i++) {
-            requestPages.push(Math.round((i * totalPages) / SAMPLE_POINTS));
-          }
-        }
-        
-        // 补充收尾页逻辑
-        if (!requestPages.includes(1)) requestPages.unshift(1);
-        if (requestPages[requestPages.length - 1] > totalPages) {
-           requestPages.pop()
-        }
+      // 按时间排序（防止抽样乱序）
+      starRecords.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        // 去重
-        requestPages = [...new Set(requestPages)];
-
-        // 【 步骤 4 】并发 Promise.all 获取指定页的第一位点兵（抽样）
-        const concurrentPromises = requestPages.map(page => {
-           // 并发请求不需要 await，我们收集 promise 数组
-           return ctx.http.get(`https://api.github.com/repos/${repo}/stargazers?per_page=${PER_PAGE}&page=${page}`, {
-            headers: baseHeaders
-          }).then(async (req) => {
-             let parsedData;
-             if (req.status === 200) {
-               try {
-                 parsedData = await req.json();
-               } catch(e) { }
-             }
-             return {
-               page: page,
-               status: req.status,
-               parsedData: parsedData
-             };
-          });
-        });
-        
-        const resArray = await Promise.all(concurrentPromises);
-        
-        // 组装打点数据
-        starRecords = [];
-        for (const res of resArray) {
-           if (res.status === 200) {
-             let parsedData = res.parsedData;
-             
-             if (parsedData && parsedData.length > 0) {
-               const firstStargazer = parsedData[0];
-               // 基于抽样算法算出此时刻对应的准确数量：(页数 - 1) * 100 加上它处在排头的这一颗星星即可接近宏观。
-               const accumulatedCount = PER_PAGE * (res.page - 1);
-               starRecords.push({
-                  count: accumulatedCount,
-                  date: firstStargazer.starred_at
-               });
-             }
-           }
-        }
-        
-        // 强行把当前时刻的真实 Total 数挤进坐标列最后
-        starRecords.push({
-           count: currentTotalStars,
-           date: new Date().toISOString()
-        });
-
-        // 按时间排序处理 (防抽样乱序)
-        starRecords.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-        // 保存到最新缓存以防未来脱机断网
-        ctx.storage.setJSON(CACHE_KEY, { total: currentTotalStars, records: starRecords });
-        chartLoaded = true;
-      } else {
-         throw new Error(`无法获取 stargazers 列表`);
-      }
+      // 缓存到本地（离线兜底）
+      ctx.storage.setJSON(CACHE_KEY, { total: currentTotalStars, records: starRecords });
+      chartLoaded = true;
     }
   } catch (err) {
-    // 失败（如并发风暴被 Github Limit 击穿或者断网），尝试拉取本地平滑兜底缓存
+    // 失败时尝试拉取本地缓存兜底
     errorMsg = err.message;
     const fallback = ctx.storage.getJSON(CACHE_KEY);
     if (fallback && fallback.records && fallback.total !== undefined) {
@@ -161,47 +169,44 @@ export default async function (ctx) {
     }
   }
 
-  // ==== UI 渲染段落 ==== 
-  
+  // ==== UI 渲染 ====
+
   if (!chartLoaded) {
-     return buildErrorWidget("API 限流或无网络", errorMsg + `\n(您可以前往 Github 申请 Personal Access Token 并配置环境参数 GITHUB_TOKEN)`);
+    return buildErrorWidget("API 限流或无网络", errorMsg + `\n(可配置 GITHUB_TOKEN 提升限额)`);
   }
 
-  // 计算波段柱形高度映射 (Bar Chart Generator)
+  // 计算柱形高度映射
   let maxStar = 0;
-  starRecords.forEach(r => { if(r.count > maxStar) maxStar = r.count });
-  if (maxStar === 0) maxStar = 1; // 避免除零
+  starRecords.forEach(r => { if (r.count > maxStar) maxStar = r.count; });
+  if (maxStar === 0) maxStar = 1;
 
   const bars = starRecords.map(record => {
-    // 使用非线性或线性 flex 指数占比。此处由于已经是宏观抽样，我们计算百分比高度
-    const heightPercent = (record.count / maxStar); 
-    // Egern flex 设置：空余（透明）与 实体（波段）比例
-    const barWeight = heightPercent > 0.05 ? heightPercent : 0.05; // 预留极低迷情况给点面子
+    const heightPercent = record.count / maxStar;
+    const barWeight = heightPercent > 0.05 ? heightPercent : 0.05;
     return {
       type: "stack",
       direction: "column",
-      // 这里 flex 值代表整根进度轴占位。由于横向排列，我们需要利用垂直 stack spacer 的比例去打出空隙！
       children: [
         { type: "spacer", flex: parseFloat((1 - barWeight).toFixed(3)) },
-        { 
-          type: "stack", 
+        {
+          type: "stack",
           flex: parseFloat(barWeight.toFixed(3)),
           backgroundColor: chartColor,
-          opacity: 0.8 + (barWeight * 0.2), // 数据越高越亮越实！
-          borderRadius: 2 // 圆边柱子高级感
+          opacity: 0.8 + (barWeight * 0.2),
+          borderRadius: 2
         }
       ]
     };
   });
 
-  // 如果没有足够多数据被抓取，插入隐形的填充占位符
+  // 不足抽样数时插入空占位
   while (bars.length < SAMPLE_POINTS) {
-     bars.unshift({
-        type: "stack",
-        direction: "column",
-        flex: 1, // 水平均分
-        children: [{ type: "spacer" }]
-     });
+    bars.unshift({
+      type: "stack",
+      direction: "column",
+      flex: 1,
+      children: [{ type: "spacer" }]
+    });
   }
 
   return {
@@ -210,12 +215,12 @@ export default async function (ctx) {
     gap: 12,
     backgroundGradient: {
       type: "linear",
-      colors: ["#161B22", "#0D1117"], // Github Dark
+      colors: ["#161B22", "#0D1117"],
       startPoint: { x: 0, y: 0 },
       endPoint: { x: 1, y: 1 }
     },
     children: [
-      // 1. 顶部：图标和大标题
+      // 顶部：图标 + 标题
       {
         type: "stack",
         direction: "row",
@@ -238,8 +243,8 @@ export default async function (ctx) {
           { type: "spacer" }
         ]
       },
-      
-      // 2. 中等部位：巨型事实数字
+
+      // 中间：Star 总数大字
       {
         type: "stack",
         direction: "row",
@@ -268,18 +273,17 @@ export default async function (ctx) {
           }
         ]
       },
-      
-      // 3. 原生引擎手撸趋势波阵图！(高占比区展示震撼趋势！)
+
+      // 底部：趋势柱状图
       {
         type: "stack",
         direction: "row",
-        alignItems: "stretch", // 横向拉伸平铺
-        flex: 1, 
-        gap: 4,               // Bar 之间的间隙宽度
+        alignItems: "stretch",
+        flex: 1,
+        gap: 4,
         children: bars.map(bar => {
-           // 为所有波段赋上相等的水平权重值，完美分摊桌面空间！
-           bar.flex = 1;      
-           return bar;
+          bar.flex = 1;
+          return bar;
         })
       }
     ]
