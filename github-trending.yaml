@@ -1,0 +1,41 @@
+name: "GitHub Trending"
+description: "热门仓库榜单（抓取 Trending）支持语言筛选"
+author: "kingsley"
+scriptings:
+# ┌─────────────────────────────────────────────────────┐
+# │           GitHub Trending 小组件配置说明             │
+# ├─────────────────────────────────────────────────────┤
+# │ 环境变量 (env):                                      │
+# │                                                     │
+# │ LANGUAGE (可选)                                      │
+# │   语言筛选，如: "JavaScript" "TypeScript" "Python"   │
+# │   留空表示全站热门                                   │
+# │                                                     │
+# │ SINCE (可选，默认 daily)                             │
+# │   时间范围：daily / weekly / monthly                │
+# │                                                     │
+# │ SPOKEN_LANGUAGE (可选)                               │
+# │   口语语言代码，如: "zh" "en"                        │
+# │   对 Trending 过滤语言说明使用                       │
+# │                                                     │
+# │ LIMIT (可选，默认 8)                                 │
+# │   展示条数 1~20                                      │
+# │                                                     │
+# │ GITHUB_TOKEN (可选)                                  │
+# │   仅在 Trending 抓取失败时使用 GitHub API 兜底        │
+# │   申请地址: https://github.com/settings/tokens       │
+# │                                                     │
+# │ ACCENT_COLOR (可选，默认 "#F97316")                 │
+# │   主题强调色                                         │
+# │                                                     │
+# │ TITLE (可选，默认 "GitHub Trending")                │
+# │   小组件标题                                         │
+# └─────────────────────────────────────────────────────┘
+- generic:
+    name: github-trending
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/main/modules/github-trending.js
+    timeout: 30
+
+widgets:
+- name: GitHub Trending
+  script_name: github-trending
