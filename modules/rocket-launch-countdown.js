@@ -1,9 +1,9 @@
 // Rocket Launch Countdown Widget Module
 // Features: Fetch next launch, countdown calculation, caching, multi-size UI rendering
 
-var CACHE_KEY = "rocket_launch_cache_v3";
+var CACHE_KEY = "rocket_launch_cache_v4";
 var DEFAULT_REFRESH_MINUTES = 10;
-var API_URL = "https://ll.thespacedevs.com/2.2.0/launch/upcoming/?mode=detailed";
+var API_URL = "https://ll.thespacedevs.com/2.2.0/launch/upcoming/?mode=detailed&status=1";
 
 export default async function (ctx) {
     var env = ctx.env || {};
@@ -64,12 +64,15 @@ async function fetchNextLaunch(ctx, url) {
         "User-Agent": "Egern-Widget",
         "Accept": "application/json"
     };
-    // Ensure limit=10 to filter out recently succeeded launches
+    // Ensure limit=5 and status=1 to filter accurately
     var paginatedUrl = url;
+    if (!paginatedUrl.includes("status=")) {
+        paginatedUrl += (paginatedUrl.includes("?") ? "&" : "?") + "status=1";
+    }
     if (paginatedUrl.includes("limit=")) {
-        paginatedUrl = paginatedUrl.replace(/limit=\d+/, "limit=10");
+        paginatedUrl = paginatedUrl.replace(/limit=\d+/, "limit=5");
     } else {
-        paginatedUrl += (paginatedUrl.includes("?") ? "&" : "?") + "limit=10";
+        paginatedUrl += (paginatedUrl.includes("?") ? "&" : "?") + "limit=5";
     }
     var resp = await ctx.http.get(paginatedUrl, { headers: headers, timeout: 10000 });
     if (resp.status !== 200) {
