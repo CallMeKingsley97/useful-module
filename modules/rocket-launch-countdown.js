@@ -60,8 +60,16 @@ export default async function (ctx) {
 // ============== Data Layer ==============
 
 async function fetchNextLaunch(ctx, url) {
-    var resp = await ctx.http.get(url, { timeout: 10000 });
-    if (resp.status !== 200) throw new Error("HTTP " + resp.status);
+    var headers = {
+        "User-Agent": "Egern-Widget",
+        "Accept": "application/json"
+    };
+    var resp = await ctx.http.get(url, { headers: headers, timeout: 10000 });
+    if (resp.status !== 200) {
+        var bodyText = "";
+        try { bodyText = await resp.text(); } catch (e) { }
+        throw new Error("HTTP " + resp.status + ": " + (bodyText || "No body"));
+    }
     var body = await resp.json();
     var results = body.results || [];
     if (results.length === 0) throw new Error("No launch results");
