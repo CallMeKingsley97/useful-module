@@ -3,7 +3,7 @@
 
 var CACHE_KEY = "rocket_launch_cache_v4";
 var DEFAULT_REFRESH_MINUTES = 10;
-var API_URL = "https://ll.thespacedevs.com/2.2.0/launch/upcoming/?mode=detailed&status=1";
+var API_URL = "https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=5&mode=detailed&status=1";
 
 export default async function (ctx) {
     var env = ctx.env || {};
@@ -66,14 +66,6 @@ async function fetchNextLaunch(ctx, url) {
     };
     // Ensure limit=5 and status=1 to filter accurately
     var paginatedUrl = url;
-    if (!paginatedUrl.includes("status=")) {
-        paginatedUrl += (paginatedUrl.includes("?") ? "&" : "?") + "status=1";
-    }
-    if (paginatedUrl.includes("limit=")) {
-        paginatedUrl = paginatedUrl.replace(/limit=\d+/, "limit=5");
-    } else {
-        paginatedUrl += (paginatedUrl.includes("?") ? "&" : "?") + "limit=5";
-    }
     var resp = await ctx.http.get(paginatedUrl, { headers: headers, timeout: 10000 });
     if (resp.status !== 200) {
         var bodyText = "";
@@ -83,7 +75,7 @@ async function fetchNextLaunch(ctx, url) {
     var body = await resp.json();
     var results = body.results || [];
     if (results.length === 0) throw new Error("No launch results");
-    
+
     // Find the first launch that isn't Success/Failure
     var l = results[0];
     for (var i = 0; i < results.length; i++) {
@@ -113,7 +105,7 @@ async function fetchNextLaunch(ctx, url) {
 function buildSmall(l, title, accent, status, nextRefresh) {
     var cd = parseCountdown(l.net);
     var countdownText = cd.text;
-    
+
     return shell([
         hstack([icon("rocket.fill", 14, accent), txt(title, 12, "bold", accent)], { gap: 4 }),
         sp(),
@@ -135,9 +127,9 @@ function buildMedium(l, title, accent, status, nextRefresh) {
         hstack([
             vstack([
                 txt(countdownText, 36, "bold", "#FFFFFF", { shadowColor: accent + "88", shadowRadius: 10, minScale: 0.6 }),
-                txt(l.statusType, 12, "bold", "#FFFFFF", { 
-                    padding: [2, 6, 2, 6], 
-                    backgroundColor: statusColor(l.statusType), 
+                txt(l.statusType, 12, "bold", "#FFFFFF", {
+                    padding: [2, 6, 2, 6],
+                    backgroundColor: statusColor(l.statusType),
                     borderRadius: 4,
                     minScale: 0.8
                 })
@@ -278,22 +270,22 @@ function parseCountdown(netStr) {
     var net = new Date(netStr).getTime();
     var now = Date.now();
     var diff = net - now;
-    
+
     if (diff <= 0) {
         return { isTBD: false, days: 0, hours: 0, mins: 0, text: "LIFT OFF" };
     }
-    
+
     var days = Math.floor(diff / (1000 * 60 * 60 * 24));
     var hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     var mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    
+
     var text = "";
     if (days > 0) {
         text = days + "d " + hours + "h";
     } else {
         text = hours + ":" + String(mins).padStart(2, '0');
     }
-    
+
     return { isTBD: false, days: days, hours: hours, mins: mins, text: text };
 }
 
