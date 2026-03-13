@@ -24,7 +24,7 @@ scriptings:
 # └─────────────────────────────────────────────────────┘
 - generic:
     name: rocket-launch-countdown
-    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/main/modules/rocket-launch-countdown.js
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/rocket-launch-countdown.js
     timeout: 30
 
 widgets:
