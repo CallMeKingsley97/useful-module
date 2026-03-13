@@ -32,7 +32,7 @@ scriptings:
 # └─────────────────────────────────────────────────────┘
 - generic:
     name: github-stars
-    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/main/modules/github-stars.js
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/github-stars.js
     timeout: 30
 
 widgets:
