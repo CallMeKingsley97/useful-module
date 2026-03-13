@@ -508,7 +508,7 @@ function extractCount(article, type) {
     var re = new RegExp("href=\"/[^\"]+/" + type + "\"[^>]*>([\\s\\S]*?)</a>", "i");
     var m = article.match(re);
     if (!m) return 0;
-    return parseNumber(m[1]);
+    return parseNumber(cleanText(m[1]));
 }
 
 function extractTrend(article) {
