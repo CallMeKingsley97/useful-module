@@ -106,7 +106,12 @@ async function fetchNextPass(ctx, opts) {
 function buildSmall(p, title, accent, status, nextRefresh) {
     var cd = parseCountdown(p.startUTC);
     return shell([
-        hstack([icon("sparkles", 12, accent), txt(title, 12, "bold", accent)], { gap: 4 }),
+        hstack([
+            icon("sparkles", 12, accent),
+            txt(title, 12, "bold", accent),
+            sp(),
+            starRow(accent)
+        ], { gap: 4 }),
         sp(),
         vstack([
             txt("T-" + cd.text, 30, "bold", "#FFFFFF", { minScale: 0.5, shadowColor: accent + "66", shadowRadius: 8 }),
@@ -132,7 +137,7 @@ function buildMedium(p, title, accent, status, nextRefresh) {
             ], { gap: 6, alignItems: "center" }),
             sp(16),
             vstack([
-                hstack([icon("sparkles", 12, accent), txt(title, 12, "bold", accent)], { gap: 6 }),
+                hstack([icon("sparkles", 12, accent), txt(title, 12, "bold", accent), sp(), starRow(accent)], { gap: 6 }),
                 txt("起始方位：" + p.startAz, 11, "medium", "rgba(255,255,255,0.7)", { maxLines: 1 }),
                 txt("结束方位：" + p.endAz, 11, "medium", "rgba(255,255,255,0.7)", { maxLines: 1 }),
                 txt("持续时长：" + formatDuration(p.duration), 11, "medium", "rgba(255,255,255,0.7)")
@@ -150,6 +155,7 @@ function buildLarge(p, title, accent, status, nextRefresh) {
             icon("sparkles", 16, accent),
             txt(title, 13, "bold", accent),
             sp(),
+            starRow(accent),
             txt("最大仰角 " + p.maxEl + "°", 11, "bold", "#FFFFFF", { padding: [2, 6, 2, 6], backgroundColor: accent + "33", borderRadius: 4 })
         ]),
         sp(12),
@@ -214,7 +220,7 @@ function shell(children, nextRefresh) {
         padding: [16, 16, 16, 16],
         backgroundGradient: {
             type: "linear",
-            colors: ["#0B0E14", "#17212B"],
+            colors: ["#0B0E14", "#0F172A", "#17212B", "#111827"],
             startPoint: { x: 0, y: 0 },
             endPoint: { x: 1, y: 1 }
         },
@@ -301,6 +307,14 @@ function vstack(children, opts) {
     var el = { type: "stack", direction: "column", alignItems: "start", children: children };
     if (opts) { for (var k in opts) el[k] = opts[k]; }
     return el;
+}
+
+function starRow(accent) {
+    return hstack([
+        icon("star.fill", 7, "rgba(255,255,255,0.4)"),
+        icon("star.fill", 5, "rgba(255,255,255,0.25)"),
+        icon("sparkles", 8, accent + "99")
+    ], { gap: 3 });
 }
 
 function sp(len) {
