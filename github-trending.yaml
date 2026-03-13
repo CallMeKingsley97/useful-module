@@ -39,7 +39,7 @@ scriptings:
 # └─────────────────────────────────────────────────────┘
 - generic:
     name: github-trending
-    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/main/modules/github-trending.js
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/github-trending.js
     timeout: 30
 
 widgets:
