@@ -5,7 +5,7 @@ scriptings:
 
 - generic:
     name: Memory-Monitor
-    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/main/modules/memory-monitor.js
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/memory-monitor.js
     timeout: 60
 
 widgets:
