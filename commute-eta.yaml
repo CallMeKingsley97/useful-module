@@ -1,0 +1,41 @@
+name: "Commute ETA"
+description: "通勤时间预测，展示家↔公司实时 ETA 与拥堵等级"
+author: "kingsley"
+scriptings:
+# ┌─────────────────────────────────────────────────────┐
+# │              Commute ETA 配置说明                    │
+# ├─────────────────────────────────────────────────────┤
+# │ 环境变量 (env):                                      │
+# │                                                     │
+# │ TITLE (可选，默认 "通勤时间预测")                     │
+# │   小组件标题                                          │
+# │                                                     │
+# │ ACCENT_COLOR (可选，默认 "#3B82F6")                  │
+# │   主题强调色                                          │
+# │                                                     │
+# │ API_KEY (必填)                                       │
+# │   高德地图 Web 服务 Key                               │
+# │                                                     │
+# │ HOME (必填)                                          │
+# │   家坐标，格式 "lng,lat"                              │
+# │                                                     │
+# │ WORK (必填)                                          │
+# │   公司坐标，格式 "lng,lat"                            │
+# │                                                     │
+# │ STRATEGY (可选，默认 0)                               │
+# │   路径策略（高德 driving 策略）                        │
+# │                                                     │
+# │ REFRESH_MINUTES (可选，默认 10)                      │
+# │   自动刷新间隔（分钟）                                │
+# │                                                     │
+# │ FORCE_REFRESH (可选，默认 false)                     │
+# │   设为 true 时忽略缓存，强制从网络拉取最新数据          │
+# └─────────────────────────────────────────────────────┘
+- generic:
+    name: commute-eta
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/commute-eta.js
+    timeout: 30
+
+widgets:
+- name: Commute ETA
+  script_name: commute-eta
