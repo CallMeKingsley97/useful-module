@@ -1,9 +1,9 @@
 // Rocket Launch Countdown Widget Module
 // Features: Fetch next launch, countdown calculation, caching, multi-size UI rendering
 
-var CACHE_KEY = "rocket_launch_cache";
+var CACHE_KEY = "rocket_launch_cache_v3";
 var DEFAULT_REFRESH_MINUTES = 10;
-var API_URL = "https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=1&mode=detailed";
+var API_URL = "https://ll.thespacedevs.com/2.2.0/launch/upcoming/?mode=detailed";
 
 export default async function (ctx) {
     var env = ctx.env || {};
@@ -64,8 +64,13 @@ async function fetchNextLaunch(ctx, url) {
         "User-Agent": "Egern-Widget",
         "Accept": "application/json"
     };
-    // Fetch 5 to ensure we find a future one even if the list has recently completed ones
-    var paginatedUrl = url.includes("?") ? (url + "&limit=5") : (url + "?limit=5");
+    // Ensure limit=10 to filter out recently succeeded launches
+    var paginatedUrl = url;
+    if (paginatedUrl.includes("limit=")) {
+        paginatedUrl = paginatedUrl.replace(/limit=\d+/, "limit=10");
+    } else {
+        paginatedUrl += (paginatedUrl.includes("?") ? "&" : "?") + "limit=10";
+    }
     var resp = await ctx.http.get(paginatedUrl, { headers: headers, timeout: 10000 });
     if (resp.status !== 200) {
         var bodyText = "";
@@ -133,14 +138,14 @@ function buildMedium(l, title, accent, status, nextRefresh) {
                     borderRadius: 4,
                     minScale: 0.8
                 })
-            ], { gap: 6, alignItems: "center" }),
+            ], { gap: 6, alignItems: "center", layoutPriority: 1 }),
             sp(16),
             vstack([
                 txt(l.name, 14, "bold", "#FFFFFF", { maxLines: 2, minScale: 0.8 }),
                 sp(4),
                 hstack([icon("info.circle", 10, "rgba(255,255,255,0.5)"), txt(l.rocket, 11, "medium", "rgba(255,255,255,0.6)", { minScale: 0.8, maxLines: 1 })], { gap: 4 }),
                 hstack([icon("mappin.and.ellipse", 10, "rgba(255,255,255,0.5)"), txt(l.location, 11, "medium", "rgba(255,255,255,0.6)", { minScale: 0.8, maxLines: 1 })], { gap: 4 })
-            ], { gap: 2 })
+            ], { gap: 2, layoutPriority: 0 })
         ], { alignItems: "center" }),
         sp(),
         footer(status)
