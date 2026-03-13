@@ -1,6 +1,6 @@
 name: "Rocket Launch Countdown"
 description: "极简宇航发射倒计时，实时追踪下一次火箭升空时间"
-author: "Antigravity"
+author: "kingsley"
 scriptings:
 # ┌─────────────────────────────────────────────────────┐
 # │           Rocket Launch Countdown 配置说明           │
