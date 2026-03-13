@@ -8,7 +8,7 @@ var API_URL = "https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=5&mode=d
 export default async function (ctx) {
     var env = ctx.env || {};
     var family = ctx.widgetFamily || "systemMedium";
-    var title = env.TITLE || "Next Launch";
+    var title = env.TITLE || "火箭发射倒计时";
     var accent = env.ACCENT_COLOR || "#22D3EE";
     var refreshMinutes = clampNumber(env.REFRESH_MINUTES || DEFAULT_REFRESH_MINUTES, 1, 1440);
     var refreshIntervalMs = refreshMinutes * 60 * 1000;
@@ -110,11 +110,11 @@ function buildSmall(l, title, accent, status, nextRefresh) {
         hstack([icon("rocket.fill", 14, accent), txt(title, 12, "bold", accent)], { gap: 4 }),
         sp(),
         vstack([
-            txt(countdownText, 32, "bold", "#FFFFFF", { shadowColor: accent + "88", shadowRadius: 10, minScale: 0.5 }),
-            txt(l.statusType, 12, "semibold", statusColor(l.statusType))
+            txt("T-" + countdownText, 32, "bold", "#FFFFFF", { shadowColor: accent + "88", shadowRadius: 10, minScale: 0.5 }),
+            txt("状态：" + l.statusType, 12, "semibold", statusColor(l.statusType))
         ], { alignItems: "center", width: "100%" }),
         sp(),
-        txt(l.name, 11, "medium", "rgba(255,255,255,0.7)", { maxLines: 1 }),
+        txt("任务：" + l.name, 11, "medium", "rgba(255,255,255,0.7)", { maxLines: 1 }),
         footer(status)
     ], nextRefresh);
 }
@@ -126,8 +126,8 @@ function buildMedium(l, title, accent, status, nextRefresh) {
     return shell([
         hstack([
             vstack([
-                txt(countdownText, 36, "bold", "#FFFFFF", { shadowColor: accent + "88", shadowRadius: 10, minScale: 0.6 }),
-                txt(l.statusType, 12, "bold", "#FFFFFF", {
+                txt("T-" + countdownText, 36, "bold", "#FFFFFF", { shadowColor: accent + "88", shadowRadius: 10, minScale: 0.6 }),
+                txt("状态：" + l.statusType, 12, "bold", "#FFFFFF", {
                     padding: [2, 6, 2, 6],
                     backgroundColor: statusColor(l.statusType),
                     borderRadius: 4,
@@ -136,10 +136,11 @@ function buildMedium(l, title, accent, status, nextRefresh) {
             ], { gap: 6, alignItems: "center", layoutPriority: 1 }),
             sp(16),
             vstack([
-                txt(l.name, 14, "bold", "#FFFFFF", { maxLines: 2, minScale: 0.8 }),
+                hstack([icon("sparkles", 12, accent), txt(title, 12, "bold", accent, { minScale: 0.8 })], { gap: 6 }),
+                txt("任务：" + l.name, 14, "bold", "#FFFFFF", { maxLines: 2, minScale: 0.8 }),
                 sp(4),
-                hstack([icon("info.circle", 10, "rgba(255,255,255,0.5)"), txt(l.rocket, 11, "medium", "rgba(255,255,255,0.6)", { minScale: 0.8, maxLines: 1 })], { gap: 4 }),
-                hstack([icon("mappin.and.ellipse", 10, "rgba(255,255,255,0.5)"), txt(l.location, 11, "medium", "rgba(255,255,255,0.6)", { minScale: 0.8, maxLines: 1 })], { gap: 4 })
+                hstack([icon("fuelpump", 10, "rgba(255,255,255,0.6)"), txt("火箭：" + l.rocket, 11, "medium", "rgba(255,255,255,0.6)", { minScale: 0.8, maxLines: 1 })], { gap: 4 }),
+                hstack([icon("mappin.and.ellipse", 10, "rgba(255,255,255,0.6)"), txt("地点：" + l.location, 11, "medium", "rgba(255,255,255,0.6)", { minScale: 0.8, maxLines: 1 })], { gap: 4 })
             ], { gap: 2, layoutPriority: 0 })
         ], { alignItems: "center" }),
         sp(),
@@ -154,21 +155,21 @@ function buildLarge(l, title, accent, status, nextRefresh) {
     return shell([
         hstack([
             icon("rocket.fill", 16, accent),
-            txt(l.name, 15, "bold", "#FFFFFF", { minScale: 0.8 }),
+            txt(title, 13, "bold", accent, { minScale: 0.8 }),
             sp(),
-            txt(l.statusType, 12, "bold", "#FFFFFF", { padding: [2, 6, 2, 6], backgroundColor: statusColor(l.statusType), borderRadius: 4 })
+            txt("状态：" + l.statusType, 12, "bold", "#FFFFFF", { padding: [2, 6, 2, 6], backgroundColor: statusColor(l.statusType), borderRadius: 4 })
         ]),
         sp(12),
         vstack([
-            txt(countdownText, 40, "bold", "#FFFFFF", { shadowColor: accent + "88", shadowRadius: 12, minScale: 0.5 }),
+            txt("T-" + countdownText, 40, "bold", "#FFFFFF", { shadowColor: accent + "88", shadowRadius: 12, minScale: 0.5 }),
             sp(8),
-            hstack([icon("info.circle.fill", 12, accent), txt(l.rocket, 13, "semibold", "rgba(255,255,255,0.8)", { minScale: 0.8 })], { gap: 6 }),
-            hstack([icon("mappin.circle.fill", 12, accent), txt(l.pad, 13, "medium", "rgba(255,255,255,0.6)", { minScale: 0.8 })], { gap: 6 }),
+            hstack([icon("fuelpump", 12, accent), txt("火箭：" + l.rocket, 13, "semibold", "rgba(255,255,255,0.8)", { minScale: 0.8 })], { gap: 6 }),
+            hstack([icon("mappin.circle.fill", 12, accent), txt("发射台：" + l.pad, 13, "medium", "rgba(255,255,255,0.6)", { minScale: 0.8 })], { gap: 6 }),
         ], { gap: 6 }),
         sp(16),
         separator(),
         sp(12),
-        txt(l.desc || "No description available.", 12, "regular", "rgba(255,255,255,0.5)", { maxLines: 4, minScale: 0.8 }),
+        txt(l.desc || "暂无任务描述。", 12, "regular", "rgba(255,255,255,0.5)", { maxLines: 4, minScale: 0.8 }),
         sp(),
         footer(status)
     ], nextRefresh);
@@ -176,7 +177,7 @@ function buildLarge(l, title, accent, status, nextRefresh) {
 
 function buildCircular(l, accent) {
     var cd = parseCountdown(l.net);
-    var text = cd.isTBD ? "TBD" : (cd.days > 0 ? cd.days + "d" : cd.hours + "h");
+    var text = cd.isTBD ? "待定" : (cd.days > 0 ? cd.days + "天" : cd.hours + "时");
     return {
         type: "widget",
         children: [
@@ -190,25 +191,25 @@ function buildCircular(l, accent) {
 
 function buildRectangular(l, accent) {
     var cd = parseCountdown(l.net);
-    var text = cd.isTBD ? "TBD" : (cd.days > 0 ? cd.days + "d " + cd.hours + "h" : cd.hours + "h " + cd.mins + "m");
+    var text = cd.isTBD ? "待定" : (cd.days > 0 ? cd.days + "天" + cd.hours + "时" : cd.hours + "时" + cd.mins + "分");
     return {
         type: "widget",
         children: [
-            hstack([icon("rocket.fill", 10, accent), txt("Next Launch", 10, "medium", "rgba(255,255,255,0.7)")], { gap: 4 }),
-            txt(text, 14, "bold"),
-            txt(l.name, 10, "medium", "rgba(255,255,255,0.5)", { maxLines: 1 })
+            hstack([icon("rocket.fill", 10, accent), txt("火箭发射倒计时", 10, "medium", "rgba(255,255,255,0.7)")], { gap: 4 }),
+            txt("T-" + text, 14, "bold"),
+            txt("任务：" + l.name, 10, "medium", "rgba(255,255,255,0.5)", { maxLines: 1 })
         ]
     };
 }
 
 function buildInline(l, accent) {
     var cd = parseCountdown(l.net);
-    var text = cd.isTBD ? "TBD" : (cd.days > 0 ? cd.days + "d " + cd.hours + "h" : cd.hours + "h " + cd.mins + "m");
+    var text = cd.isTBD ? "待定" : (cd.days > 0 ? cd.days + "天" + cd.hours + "时" : cd.hours + "时" + cd.mins + "分");
     return {
         type: "widget",
         children: [
             icon("rocket.fill", 12, accent),
-            txt(" T-" + text + " " + (l.name.split('|')[0].trim()), 12, "medium")
+            txt(" 发射倒计时 T-" + text + " " + (l.name.split('|')[0].trim()), 12, "medium")
         ]
     };
 }
@@ -242,7 +243,7 @@ function footer(status) {
             textColor: "rgba(255,255,255,0.3)"
         },
         sp(),
-        txt(isLive ? "LIVE" : "CACHED", 8, "bold", isLive ? "#10B98166" : "#F59E0B66")
+        txt(isLive ? "实时" : "缓存", 8, "bold", isLive ? "#10B98166" : "#F59E0B66")
     ], { gap: 4 });
 }
 
@@ -272,7 +273,7 @@ function parseCountdown(netStr) {
     var diff = net - now;
 
     if (diff <= 0) {
-        return { isTBD: false, days: 0, hours: 0, mins: 0, text: "LIFT OFF" };
+        return { isTBD: false, days: 0, hours: 0, mins: 0, text: "点火起飞" };
     }
 
     var days = Math.floor(diff / (1000 * 60 * 60 * 24));
@@ -281,7 +282,7 @@ function parseCountdown(netStr) {
 
     var text = "";
     if (days > 0) {
-        text = days + "d " + hours + "h";
+        text = days + "天" + hours + "时";
     } else {
         text = hours + ":" + String(mins).padStart(2, '0');
     }
