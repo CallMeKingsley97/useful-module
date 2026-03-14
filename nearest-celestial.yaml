@@ -1,0 +1,41 @@
+name: "Nearest Celestial"
+description: "计算用户位置当前可见中仰角最高的天体（太阳系天体 + 亮星）"
+author: "kingsley"
+scriptings:
+# ┌─────────────────────────────────────────────────────┐
+# │             最近天体 配置说明                        │
+# ├─────────────────────────────────────────────────────┤
+# │ 环境变量 (env):                                      │
+# │                                                     │
+# │ TITLE (可选，默认 "最近天体")                         │
+# │   小组件标题                                          │
+# │                                                     │
+# │ ACCENT_COLOR (可选)                                  │
+# │   主题强调色                                          │
+# │                                                     │
+# │ APP_ID (必填)                                        │
+# │   AstronomyAPI App ID                                │
+# │                                                     │
+# │ APP_SECRET (必填)                                    │
+# │   AstronomyAPI App Secret                            │
+# │                                                     │
+# │ LAT/LON (必填)                                       │
+# │   位置经纬度                                         │
+# │                                                     │
+# │ ALT (可选，默认 0)                                   │
+# │   海拔(米)                                           │
+# │                                                     │
+# │ REFRESH_MINUTES (可选，默认 30)                      │
+# │   自动刷新间隔（分钟）                                │
+# │                                                     │
+# │ FORCE_REFRESH (可选，默认 false)                     │
+# │   设为 true 时忽略缓存，强制从网络拉取最新数据          │
+# └─────────────────────────────────────────────────────┘
+- generic:
+    name: nearest-celestial
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/nearest-celestial.js
+    timeout: 30
+
+widgets:
+- name: 最近天体
+  script_name: nearest-celestial
