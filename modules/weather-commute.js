@@ -441,7 +441,7 @@ function buildMedium(view, title, accent, status, nextRefresh) {
         hstack(daily.map(function (d) { return dailyCard(d, accent, theme); }), { gap: 6 }),
         sp(),
         footer(status, theme)
-    ], nextRefresh, null, theme);
+    ], nextRefresh, [14, 16, 12, 16], theme);
 }
 
 function buildLarge(view, title, accent, status, nextRefresh) {
