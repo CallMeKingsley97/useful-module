@@ -411,85 +411,82 @@ function buildMedium(view, title, accent, status, nextRefresh) {
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
-        sp(4),
+        sp(),
         hstack([
             vstack([
-                txt(now.text, 12, "semibold", theme.textMuted),
-                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 10, "medium", theme.textSubtle),
-                sp(4),
                 hstack([
-                    metricBlock("体感", formatTemp(now.feelsLike), theme),
-                    metricBlock("湿度", formatPercent(now.humidity), theme),
-                    metricBlock("风速", formatWind(now.windSpeed), theme),
-                    metricBlock("降水", formatPrecip(now.precip), theme)
-                ], { gap: 4 })
-            ], { gap: 2, flex: 1 }),
+                    txt(now.text, 16, "bold", theme.textMuted),
+                    sp(8),
+                    txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " | 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle)
+                ], { alignItems: "end", gap: 0 }),
+                sp(8),
+                hstack([
+                    tag("舒适度 " + view.comfort.score, view.comfort.color, view.comfort.bg, 9),
+                    sp(6),
+                    tag("穿衣 " + view.advice.short, view.advice.color, view.advice.bg, 9)
+                ], { gap: 0 }),
+                sp(8),
+                hstack([
+                    metricInline("体感", formatTemp(now.feelsLike)),
+                    sp(10),
+                    metricInline("风速", formatWind(now.windSpeed)),
+                    sp(10),
+                    metricInline("湿度", formatPercent(now.humidity))
+                ], { gap: 0 })
+            ], { flex: 1, gap: 0 }),
             vstack([
-                icon(view.iconName, 24, accent),
-                txt(formatTemp(now.temp), 34, "bold", "#FFFFFF", { minScale: 0.6 })
+                icon(view.iconName, 28, accent),
+                txt(formatTemp(now.temp), 42, "bold", "#FFFFFF", { minScale: 0.6 })
             ], { gap: 2, alignItems: "center" })
-        ], { alignItems: "start" }),
-        sp(4),
-        comfortRow(view.comfort, theme),
-        sp(4),
+        ], { alignItems: "center" }),
+        sp(),
         hourlyStrip(hourly, accent, theme),
         sp(4),
-        clothingRow(view.advice, theme),
-        sp(),
         footer(status, theme)
-    ], nextRefresh, [10, 14, 8, 14], theme);
+    ], nextRefresh, [12, 14, 10, 14], theme);
 }
 
 function buildLarge(view, title, accent, status, nextRefresh) {
     var now = view.now;
     var today = view.today;
     var hourly = view.hourly.slice(0, 8);
-    var daily = view.daily.slice(0, 6);
+    var daily = view.daily.slice(0, 4);
     var theme = view.theme;
-
-    var dailyRow1 = daily.slice(0, 2);
-    var dailyRow2 = daily.slice(2, 4);
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
-        sp(6),
-        hstack([
-            vstack([
-                txt(now.text, 12, "semibold", theme.textMuted),
-                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 10, "medium", theme.textSubtle)
-            ], { gap: 2, flex: 1 }),
-            vstack([
-                icon(view.iconName, 28, accent),
-                txt(formatTemp(now.temp), 40, "bold", "#FFFFFF", { minScale: 0.6 }),
-                tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg)
-            ], { gap: 4, alignItems: "center" })
-        ], { alignItems: "start" }),
-        sp(6),
-        comfortRow(view.comfort, theme),
-        sp(6),
-        hstack([
-            metricBlock("体感", formatTemp(now.feelsLike), theme),
-            metricBlock("湿度", formatPercent(now.humidity), theme),
-            metricBlock("风速", formatWind(now.windSpeed), theme),
-            metricBlock("能见度", formatVis(now.vis), theme)
-        ], { gap: 6 }),
-        sp(6),
-        clothingRow(view.advice, theme),
-        sp(6),
-        hourlyStrip(hourly, accent, theme),
-        sp(4),
-        hstack([
-            infoChip("日出", today ? today.sunrise : "--", theme),
-            infoChip("日落", today ? today.sunset : "--", theme),
-            sp()
-        ], { gap: 6 }),
-        sp(6),
-        hstack(dailyRow1.map(function (d) { return dailyCardLarge(d, accent, theme); }), { gap: 6 }),
-        sp(4),
-        hstack(dailyRow2.map(function (d) { return dailyCardLarge(d, accent, theme); }), { gap: 6 }),
         sp(),
+        hstack([
+            vstack([
+                txt(now.text, 16, "bold", theme.textMuted),
+                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle)
+            ], { flex: 1, gap: 4 }),
+            vstack([
+                icon(view.iconName, 32, accent),
+                txt(formatTemp(now.temp), 46, "bold", "#FFFFFF", { minScale: 0.6 })
+            ], { alignItems: "center", gap: 0 })
+        ], { alignItems: "center" }),
+        sp(),
+        hstack([
+            metricBlock("舒适度", view.comfort.score + "分", theme),
+            metricBlock("较昨日", view.yesterdayDiff.text.replace("较昨 ", ""), theme),
+            metricBlock("体感", formatTemp(now.feelsLike), theme),
+            metricBlock("能见", formatVis(now.vis), theme)
+        ], { gap: 6 }),
+        sp(8),
+        hstack([
+            txt("穿衣建议", 10, "medium", theme.textSubtle),
+            sp(8),
+            txt(view.advice.detail, 11, "semibold", "#FFFFFF", { minScale: 0.8 }),
+            sp()
+        ], { padding: [8, 12, 8, 12], backgroundColor: theme.cardStrong, borderRadius: 8, alignItems: "center" }),
+        sp(8),
+        hourlyStrip(hourly, accent, theme),
+        sp(8),
+        hstack(daily.map(function (d) { return dailyCardLarge(d, accent, theme); }), { gap: 6 }),
+        sp(4),
         footer(status, theme)
-    ], nextRefresh, [12, 14, 10, 14], theme);
+    ], nextRefresh, [14, 16, 12, 16], theme);
 }
 
 function buildCircular(view, accent) {
@@ -571,37 +568,7 @@ function comfortCard(comfort, theme) {
     ], { gap: 4 });
 }
 
-function comfortRow(comfort, theme) {
-    return hstack([
-        txt("通勤舒适度", 10, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.6)"),
-        txt(comfort.score + "分", 16, "bold", "#FFFFFF"),
-        tag(comfort.level, comfort.color, comfort.bg),
-        sp(),
-        { type: "stack", flex: 1, height: 4, borderRadius: 2, backgroundColor: theme ? theme.highlight : "rgba(255,255,255,0.12)", children: [
-            { type: "stack", flex: Math.max(0.02, comfort.score / 100), height: 4, borderRadius: 2, backgroundColor: comfort.color, children: [] },
-            { type: "stack", flex: 1 - comfort.score / 100, children: [] }
-        ], direction: "row" }
-    ], {
-        gap: 6,
-        alignItems: "center",
-        padding: [6, 10, 6, 10],
-        backgroundColor: theme ? theme.cardStrong : "rgba(255,255,255,0.1)",
-        borderRadius: 8
-    });
-}
 
-function clothingRow(advice, theme) {
-    return hstack([
-        txt("穿衣建议", 10, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.6)"),
-        txt(advice.detail, 11, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.7 })
-    ], {
-        gap: 6,
-        alignItems: "center",
-        padding: [5, 10, 5, 10],
-        backgroundColor: theme ? theme.cardStrong : "rgba(255,255,255,0.1)",
-        borderRadius: 8
-    });
-}
 
 function comfortTag(comfort) {
     return tag("舒适度 " + comfort.level + " " + comfort.score + "分", comfort.color, comfort.bg);
@@ -662,11 +629,11 @@ function dailyCardLarge(d, accent, theme) {
 
 function metricBlock(label, value, theme) {
     return vstack([
-        txt(label, 8, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.5)"),
-        txt(value, 11, "bold", "#FFFFFF", { minScale: 0.7 })
+        txt(label, 9, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.5)"),
+        txt(value, 11, "bold", "#FFFFFF", { minScale: 0.7, maxLines: 1 })
     ], {
-        gap: 1,
-        padding: [4, 6, 4, 6],
+        gap: 2,
+        padding: [6, 8, 6, 8],
         backgroundColor: theme ? theme.card : "rgba(255,255,255,0.06)",
         borderRadius: 8,
         flex: 1
