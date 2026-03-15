@@ -11,7 +11,6 @@ export default async function (ctx) {
 
     var title = env.TITLE || "天气通勤舒适度";
     var accentInput = String(env.ACCENT_COLOR || "").trim();
-    var geoHostInput = String(env.GEO_HOST || "").trim();
     var refreshMinutes = clampNumber(env.REFRESH_MINUTES || DEFAULT_REFRESH_MINUTES, 5, 1440);
     var refreshIntervalMs = refreshMinutes * 60 * 1000;
     var forceRefresh = isTrue(env.FORCE_REFRESH);
@@ -20,7 +19,6 @@ export default async function (ctx) {
     var apiKey = String(env.API_KEY || "").trim();
     var location = String(env.LOCATION || "").trim();
     var locationNameInput = String(env.LOCATION_NAME || "").trim();
-    var geoHost = normalizeHost(geoHostInput);
 
     if (!host) return errorWidget("缺少配置", "请设置 HOST (和风天气)");
     if (!apiKey) return errorWidget("缺少配置", "请设置 API_KEY (和风天气)");
@@ -40,7 +38,6 @@ export default async function (ctx) {
         try {
             data = await fetchAllWeather(ctx, {
                 host: host,
-                geoHost: geoHost,
                 apiKey: apiKey,
                 location: location
             });
@@ -135,30 +132,21 @@ async function fetchJson(ctx, url) {
 }
 
 async function fetchLocationInfo(ctx, opts) {
-    var hosts = [];
-    if (opts.geoHost) hosts.push(opts.geoHost);
-    if (opts.host) hosts.push(opts.host);
-    if (!hosts.some(function (h) { return /geoapi\.qweather\.com/i.test(String(h || "")); })) {
-        hosts.push("https://geoapi.qweather.com");
+    var host = normalizeHost(opts.host);
+    if (!host) return null;
+    var url = host + "/geo/v2/city/lookup?location=" + encodeURIComponent(opts.location) + "&key=" + encodeURIComponent(opts.apiKey);
+    try {
+        var body = await fetchJson(ctx, url);
+        if (body.code !== "200" || !body.location || body.location.length === 0) return null;
+        var loc = body.location[0];
+        return {
+            id: loc.id || "",
+            name: formatLocationName(loc)
+        };
+    } catch (e) {
+        console.log("location lookup error: " + safeMsg(e));
+        return null;
     }
-
-    for (var i = 0; i < hosts.length; i++) {
-        var host = normalizeHost(hosts[i]);
-        if (!host) continue;
-        var url = host + "/v2/city/lookup?location=" + encodeURIComponent(opts.location) + "&key=" + encodeURIComponent(opts.apiKey);
-        try {
-            var body = await fetchJson(ctx, url);
-            if (body.code !== "200" || !body.location || body.location.length === 0) continue;
-            var loc = body.location[0];
-            return {
-                id: loc.id || "",
-                name: formatLocationName(loc)
-            };
-        } catch (e) {
-            console.log("location lookup error: " + safeMsg(e));
-        }
-    }
-    return null;
 }
 
 function formatLocationName(loc) {

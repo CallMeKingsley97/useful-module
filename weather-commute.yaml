@@ -13,10 +13,6 @@ scriptings:
 # │ ACCENT_COLOR (可选，默认 "#60A5FA")                │
 # │   主题强调色；不填则按昼夜/天气/温度自动变换           │
 # │                                                     │
-# │ GEO_HOST (可选)                                      │
-# │   GeoAPI Host，用于经纬度解析地名                      │
-# │   默认 https://geoapi.qweather.com                   │
-# │                                                     │
 # │ HOST (必填)                                           │
 # │   和风天气 API Host（可仅填域名，将自动补全 https://）  │
 # │                                                     │
