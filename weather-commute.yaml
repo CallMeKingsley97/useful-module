@@ -1,0 +1,41 @@
+name: "Weather Commute"
+description: "和风天气实况/逐小时/7日 + 通勤舒适度指数 + 昨日温差对比，多尺寸自适配"
+author: "kingsley"
+scriptings:
+# ┌─────────────────────────────────────────────────────┐
+# │              天气通勤舒适度 配置说明                 │
+# ├─────────────────────────────────────────────────────┤
+# │ 环境变量 (env):                                      │
+# │                                                     │
+# │ TITLE (可选，默认 "天气通勤舒适度")                 │
+# │   小组件标题                                          │
+# │                                                     │
+# │ ACCENT_COLOR (可选，默认 "#60A5FA")                │
+# │   主题强调色                                          │
+# │                                                     │
+# │ HOST (必填)                                           │
+# │   和风天气 API Host                                   │
+# │                                                     │
+# │ API_KEY (必填)                                       │
+# │   和风天气 API Key                                    │
+# │                                                     │
+# │ LOCATION (必填)                                       │
+# │   经纬度或 LocationID                                 │
+# │                                                     │
+# │ LOCATION_NAME (可选，自动解析)                        │
+# │   未填写时将根据 LOCATION 自动解析地点名称            │
+# │                                                     │
+# │ REFRESH_MINUTES (可选，默认 30)                      │
+# │   自动刷新间隔（分钟）                                │
+# │                                                     │
+# │ FORCE_REFRESH (可选，默认 false)                     │
+# │   设为 true 时忽略缓存，强制从网络拉取最新数据          │
+# └─────────────────────────────────────────────────────┘
+- generic:
+    name: weather-commute
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/weather-commute.js
+    timeout: 30
+
+widgets:
+- name: 天气通勤舒适度
+  script_name: weather-commute
