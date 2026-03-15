@@ -14,7 +14,7 @@ export default async function (ctx) {
     var refreshIntervalMs = refreshMinutes * 60 * 1000;
     var forceRefresh = isTrue(env.FORCE_REFRESH);
 
-    var host = String(env.HOST || "").trim().replace(/\/$/, "");
+    var host = normalizeHost(env.HOST || "");
     var apiKey = String(env.API_KEY || "").trim();
     var location = String(env.LOCATION || "").trim();
     var locationNameInput = String(env.LOCATION_NAME || "").trim();
@@ -795,6 +795,13 @@ function isTrue(val) {
 
 function isValidLocationId(val) {
     return /^\d+$/.test(String(val || ""));
+}
+
+function normalizeHost(raw) {
+    var h = String(raw || "").trim();
+    if (!h) return "";
+    if (!/^https?:\/\//i.test(h)) h = "https://" + h;
+    return h.replace(/\/$/, "");
 }
 
 function loadCache(ctx) {

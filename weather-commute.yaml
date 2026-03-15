@@ -14,7 +14,7 @@ scriptings:
 # │   主题强调色                                          │
 # │                                                     │
 # │ HOST (必填)                                           │
-# │   和风天气 API Host                                   │
+# │   和风天气 API Host（可仅填域名，将自动补全 https://）  │
 # │                                                     │
 # │ API_KEY (必填)                                       │
 # │   和风天气 API Key                                    │
