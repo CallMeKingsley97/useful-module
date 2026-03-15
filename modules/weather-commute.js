@@ -427,7 +427,7 @@ function buildMedium(view, title, accent, status, nextRefresh) {
                 icon(view.iconName, 28, accent),
                 txt(formatTemp(now.temp), 40, "bold", "#FFFFFF", { minScale: 0.6 })
             ], { gap: 4, alignItems: "center" })
-        ], { alignItems: "center" }),
+        ], { alignItems: "start" }),
         sp(8),
         hstack([
             metricBlock("体感", formatTemp(now.feelsLike), theme),
@@ -450,6 +450,10 @@ function buildLarge(view, title, accent, status, nextRefresh) {
     var hourly = view.hourly.slice(0, 8);
     var daily = view.daily.slice(0, 6);
     var theme = view.theme;
+
+    // 大尺寸只显示4天预报，分两行每行2个
+    var dailyRow1 = daily.slice(0, 2);
+    var dailyRow2 = daily.slice(2, 4);
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
@@ -474,7 +478,7 @@ function buildLarge(view, title, accent, status, nextRefresh) {
                 txt(formatTemp(now.temp), 44, "bold", "#FFFFFF", { minScale: 0.6 }),
                 tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg)
             ], { gap: 6, alignItems: "center" })
-        ], { alignItems: "center" }),
+        ], { alignItems: "start" }),
         sp(10),
         hstack([
             metricBlock("体感", formatTemp(now.feelsLike), theme),
@@ -485,10 +489,10 @@ function buildLarge(view, title, accent, status, nextRefresh) {
         sp(10),
         hourlyStrip(hourly, accent, theme),
         sp(10),
-        hstack([
-            vstack(daily.slice(0, 3).map(function (d) { return dailyCard(d, accent, theme); }), { gap: 6, flex: 1 }),
-            vstack(daily.slice(3, 6).map(function (d) { return dailyCard(d, accent, theme); }), { gap: 6, flex: 1 })
-        ], { gap: 8, alignItems: "start" }),
+        // 大尺寸分两行显示预报，每行2个
+        hstack(dailyRow1.map(function (d) { return dailyCardLarge(d, accent, theme); }), { gap: 6 }),
+        sp(6),
+        hstack(dailyRow2.map(function (d) { return dailyCardLarge(d, accent, theme); }), { gap: 6 }),
         sp(),
         footer(status, theme)
     ], nextRefresh, [14, 16, 12, 16], theme);
@@ -585,6 +589,11 @@ function hourlyStrip(hourly, accent, theme) {
     var barBg = theme ? theme.barBg : "rgba(255,255,255,0.35)";
     var textSubtle = theme ? theme.textSubtle : "rgba(255,255,255,0.5)";
 
+    // 计算合适的 itemWidth，根据 item 数量动态调整
+    var itemCount = hourly.length;
+    var itemWidth = itemCount > 6 ? 24 : (itemCount > 4 ? 28 : 30);
+    var itemGap = itemCount > 6 ? 4 : 6;
+
     return hstack(hourly.map(function (h) {
         var ratio = max === min ? 0.5 : (h.temp - min) / (max - min);
         var barHeight = 6 + ratio * 20;
@@ -593,8 +602,8 @@ function hourlyStrip(hourly, accent, theme) {
             sp(2),
             { type: "stack", width: 6, height: barHeight, borderRadius: 3, backgroundColor: barBg, children: [] },
             txt(formatTemp(h.temp), 9, "semibold", "#FFFFFFCC", { minScale: 0.6 })
-        ], { gap: 3, alignItems: "center", width: 30 });
-    }), { gap: 6, alignItems: "end" });
+        ], { gap: 3, alignItems: "center", width: itemWidth });
+    }), { gap: itemGap, alignItems: "end" });
 }
 
 function dailyCard(d, accent, theme) {
@@ -607,6 +616,21 @@ function dailyCard(d, accent, theme) {
         padding: [6, 8, 6, 8],
         backgroundColor: theme ? theme.card : "rgba(255,255,255,0.06)",
         borderRadius: 8
+    });
+}
+
+function dailyCardLarge(d, accent, theme) {
+    // 大尺寸预报卡片，更大的图标和文字
+    return vstack([
+        txt(formatWeekday(d.date), 10, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.6)"),
+        icon(iconForWeather(d.iconDay, false), 18, accent),
+        txt(formatTemp(d.tempMax) + "/" + formatTemp(d.tempMin), 10, "semibold", "#FFFFFFCC")
+    ], {
+        gap: 4,
+        padding: [8, 12, 8, 12],
+        backgroundColor: theme ? theme.card : "rgba(255,255,255,0.06)",
+        borderRadius: 10,
+        flex: 1
     });
 }
 
