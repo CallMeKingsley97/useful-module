@@ -407,41 +407,37 @@ function buildMedium(view, title, accent, status, nextRefresh) {
     var now = view.now;
     var today = view.today;
     var hourly = view.hourly.slice(0, 6);
-    var daily = view.daily.slice(0, 3);
     var theme = view.theme;
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
-        sp(8),
+        sp(4),
         hstack([
             vstack([
                 txt(now.text, 12, "semibold", theme.textMuted),
                 txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 10, "medium", theme.textSubtle),
-                sp(6),
-                comfortCard(view.comfort, theme),
-                sp(6),
-                clothingCard(view.advice, theme)
+                sp(4),
+                hstack([
+                    metricBlock("体感", formatTemp(now.feelsLike), theme),
+                    metricBlock("湿度", formatPercent(now.humidity), theme),
+                    metricBlock("风速", formatWind(now.windSpeed), theme),
+                    metricBlock("降水", formatPrecip(now.precip), theme)
+                ], { gap: 4 })
             ], { gap: 2, flex: 1 }),
-            sp(),
             vstack([
-                icon(view.iconName, 28, accent),
-                txt(formatTemp(now.temp), 40, "bold", "#FFFFFF", { minScale: 0.6 })
-            ], { gap: 4, alignItems: "center" })
+                icon(view.iconName, 24, accent),
+                txt(formatTemp(now.temp), 34, "bold", "#FFFFFF", { minScale: 0.6 })
+            ], { gap: 2, alignItems: "center" })
         ], { alignItems: "start" }),
-        sp(8),
-        hstack([
-            metricBlock("体感", formatTemp(now.feelsLike), theme),
-            metricBlock("湿度", formatPercent(now.humidity), theme),
-            metricBlock("风速", formatWind(now.windSpeed), theme),
-            metricBlock("降水", formatPrecip(now.precip), theme)
-        ], { gap: 6 }),
-        sp(8),
+        sp(4),
+        comfortRow(view.comfort, theme),
+        sp(4),
         hourlyStrip(hourly, accent, theme),
-        sp(8),
-        hstack(daily.map(function (d) { return dailyCard(d, accent, theme); }), { gap: 6 }),
+        sp(4),
+        clothingRow(view.advice, theme),
         sp(),
         footer(status, theme)
-    ], nextRefresh, [14, 16, 12, 16], theme);
+    ], nextRefresh, [10, 14, 8, 14], theme);
 }
 
 function buildLarge(view, title, accent, status, nextRefresh) {
@@ -451,51 +447,49 @@ function buildLarge(view, title, accent, status, nextRefresh) {
     var daily = view.daily.slice(0, 6);
     var theme = view.theme;
 
-    // 大尺寸只显示4天预报，分两行每行2个
     var dailyRow1 = daily.slice(0, 2);
     var dailyRow2 = daily.slice(2, 4);
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
-        sp(8),
+        sp(6),
         hstack([
             vstack([
                 txt(now.text, 12, "semibold", theme.textMuted),
-                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 10, "medium", theme.textSubtle),
-                sp(6),
-                comfortCard(view.comfort, theme),
-                sp(6),
-                clothingCard(view.advice, theme),
-                sp(6),
-                hstack([
-                    infoChip("日出", today ? today.sunrise : "--", theme),
-                    infoChip("日落", today ? today.sunset : "--", theme)
-                ], { gap: 6 })
+                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 10, "medium", theme.textSubtle)
             ], { gap: 2, flex: 1 }),
-            sp(),
             vstack([
-                icon(view.iconName, 30, accent),
-                txt(formatTemp(now.temp), 44, "bold", "#FFFFFF", { minScale: 0.6 }),
+                icon(view.iconName, 28, accent),
+                txt(formatTemp(now.temp), 40, "bold", "#FFFFFF", { minScale: 0.6 }),
                 tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg)
-            ], { gap: 6, alignItems: "center" })
+            ], { gap: 4, alignItems: "center" })
         ], { alignItems: "start" }),
-        sp(10),
+        sp(6),
+        comfortRow(view.comfort, theme),
+        sp(6),
         hstack([
             metricBlock("体感", formatTemp(now.feelsLike), theme),
             metricBlock("湿度", formatPercent(now.humidity), theme),
             metricBlock("风速", formatWind(now.windSpeed), theme),
             metricBlock("能见度", formatVis(now.vis), theme)
         ], { gap: 6 }),
-        sp(10),
-        hourlyStrip(hourly, accent, theme),
-        sp(10),
-        // 大尺寸分两行显示预报，每行2个
-        hstack(dailyRow1.map(function (d) { return dailyCardLarge(d, accent, theme); }), { gap: 6 }),
         sp(6),
+        clothingRow(view.advice, theme),
+        sp(6),
+        hourlyStrip(hourly, accent, theme),
+        sp(4),
+        hstack([
+            infoChip("日出", today ? today.sunrise : "--", theme),
+            infoChip("日落", today ? today.sunset : "--", theme),
+            sp()
+        ], { gap: 6 }),
+        sp(6),
+        hstack(dailyRow1.map(function (d) { return dailyCardLarge(d, accent, theme); }), { gap: 6 }),
+        sp(4),
         hstack(dailyRow2.map(function (d) { return dailyCardLarge(d, accent, theme); }), { gap: 6 }),
         sp(),
         footer(status, theme)
-    ], nextRefresh, [14, 16, 12, 16], theme);
+    ], nextRefresh, [12, 14, 10, 14], theme);
 }
 
 function buildCircular(view, accent) {
@@ -577,6 +571,38 @@ function comfortCard(comfort, theme) {
     ], { gap: 4 });
 }
 
+function comfortRow(comfort, theme) {
+    return hstack([
+        txt("通勤舒适度", 10, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.6)"),
+        txt(comfort.score + "分", 16, "bold", "#FFFFFF"),
+        tag(comfort.level, comfort.color, comfort.bg),
+        sp(),
+        { type: "stack", flex: 1, height: 4, borderRadius: 2, backgroundColor: theme ? theme.highlight : "rgba(255,255,255,0.12)", children: [
+            { type: "stack", flex: Math.max(0.02, comfort.score / 100), height: 4, borderRadius: 2, backgroundColor: comfort.color, children: [] },
+            { type: "stack", flex: 1 - comfort.score / 100, children: [] }
+        ], direction: "row" }
+    ], {
+        gap: 6,
+        alignItems: "center",
+        padding: [6, 10, 6, 10],
+        backgroundColor: theme ? theme.cardStrong : "rgba(255,255,255,0.1)",
+        borderRadius: 8
+    });
+}
+
+function clothingRow(advice, theme) {
+    return hstack([
+        txt("穿衣建议", 10, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.6)"),
+        txt(advice.detail, 11, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.7 })
+    ], {
+        gap: 6,
+        alignItems: "center",
+        padding: [5, 10, 5, 10],
+        backgroundColor: theme ? theme.cardStrong : "rgba(255,255,255,0.1)",
+        borderRadius: 8
+    });
+}
+
 function comfortTag(comfort) {
     return tag("舒适度 " + comfort.level + " " + comfort.score + "分", comfort.color, comfort.bg);
 }
@@ -589,21 +615,20 @@ function hourlyStrip(hourly, accent, theme) {
     var barBg = theme ? theme.barBg : "rgba(255,255,255,0.35)";
     var textSubtle = theme ? theme.textSubtle : "rgba(255,255,255,0.5)";
 
-    // 计算合适的 itemWidth，根据 item 数量动态调整
     var itemCount = hourly.length;
     var itemWidth = itemCount > 6 ? 24 : (itemCount > 4 ? 28 : 30);
     var itemGap = itemCount > 6 ? 4 : 6;
-    var stripHeight = 56;
+    var stripHeight = 48;
 
     return hstack(hourly.map(function (h) {
         var ratio = max === min ? 0.5 : (h.temp - min) / (max - min);
-        var barHeight = 6 + ratio * 20;
+        var barHeight = 4 + ratio * 16;
         return vstack([
             txt(formatHour(h.time), 8, "medium", textSubtle),
-            sp(2),
-            { type: "stack", width: 6, height: barHeight, borderRadius: 3, backgroundColor: barBg, children: [] },
+            sp(1),
+            { type: "stack", width: 5, height: barHeight, borderRadius: 2.5, backgroundColor: barBg, children: [] },
             txt(formatTemp(h.temp), 9, "semibold", "#FFFFFFCC", { minScale: 0.6 })
-        ], { gap: 3, alignItems: "center", width: itemWidth });
+        ], { gap: 2, alignItems: "center", width: itemWidth });
     }), { gap: itemGap, alignItems: "end", height: stripHeight });
 }
 
@@ -637,13 +662,14 @@ function dailyCardLarge(d, accent, theme) {
 
 function metricBlock(label, value, theme) {
     return vstack([
-        txt(label, 9, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.5)"),
-        txt(value, 12, "bold", "#FFFFFF")
+        txt(label, 8, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.5)"),
+        txt(value, 11, "bold", "#FFFFFF", { minScale: 0.7 })
     ], {
-        gap: 2,
-        padding: [6, 8, 6, 8],
+        gap: 1,
+        padding: [4, 6, 4, 6],
         backgroundColor: theme ? theme.card : "rgba(255,255,255,0.06)",
-        borderRadius: 8
+        borderRadius: 8,
+        flex: 1
     });
 }
 
