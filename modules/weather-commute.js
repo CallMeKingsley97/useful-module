@@ -593,6 +593,7 @@ function hourlyStrip(hourly, accent, theme) {
     var itemCount = hourly.length;
     var itemWidth = itemCount > 6 ? 24 : (itemCount > 4 ? 28 : 30);
     var itemGap = itemCount > 6 ? 4 : 6;
+    var stripHeight = 56;
 
     return hstack(hourly.map(function (h) {
         var ratio = max === min ? 0.5 : (h.temp - min) / (max - min);
@@ -603,7 +604,7 @@ function hourlyStrip(hourly, accent, theme) {
             { type: "stack", width: 6, height: barHeight, borderRadius: 3, backgroundColor: barBg, children: [] },
             txt(formatTemp(h.temp), 9, "semibold", "#FFFFFFCC", { minScale: 0.6 })
         ], { gap: 3, alignItems: "center", width: itemWidth });
-    }), { gap: itemGap, alignItems: "end" });
+    }), { gap: itemGap, alignItems: "end", height: stripHeight });
 }
 
 function dailyCard(d, accent, theme) {
