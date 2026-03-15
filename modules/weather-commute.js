@@ -3,13 +3,15 @@
 
 var CACHE_KEY = "weather_commute_cache_v1";
 var DEFAULT_REFRESH_MINUTES = 30;
+var HISTORY_DAYS = 7;
 
 export default async function (ctx) {
     var env = ctx.env || {};
     var family = ctx.widgetFamily || "systemMedium";
 
     var title = env.TITLE || "天气通勤舒适度";
-    var accent = env.ACCENT_COLOR || "#60A5FA";
+    var accentInput = String(env.ACCENT_COLOR || "").trim();
+    var geoHostInput = String(env.GEO_HOST || "").trim();
     var refreshMinutes = clampNumber(env.REFRESH_MINUTES || DEFAULT_REFRESH_MINUTES, 5, 1440);
     var refreshIntervalMs = refreshMinutes * 60 * 1000;
     var forceRefresh = isTrue(env.FORCE_REFRESH);
@@ -18,6 +20,7 @@ export default async function (ctx) {
     var apiKey = String(env.API_KEY || "").trim();
     var location = String(env.LOCATION || "").trim();
     var locationNameInput = String(env.LOCATION_NAME || "").trim();
+    var geoHost = normalizeHost(geoHostInput);
 
     if (!host) return errorWidget("缺少配置", "请设置 HOST (和风天气)");
     if (!apiKey) return errorWidget("缺少配置", "请设置 API_KEY (和风天气)");
@@ -37,9 +40,11 @@ export default async function (ctx) {
         try {
             data = await fetchAllWeather(ctx, {
                 host: host,
+                geoHost: geoHost,
                 apiKey: apiKey,
                 location: location
             });
+            data = attachHistory(cached, data);
             saveCache(ctx, data);
             fetched = true;
         } catch (e) {
@@ -53,7 +58,8 @@ export default async function (ctx) {
     }
 
     var locationName = resolveLocationName(locationNameInput, data.locationInfo, location);
-    var view = buildView(data, locationName, accent);
+    var view = buildView(data, locationName, accentInput);
+    var accent = view.theme.accent;
     var status = fetched ? "live" : "cached";
     var nextRefresh = new Date(Date.now() + refreshIntervalMs).toISOString();
 
@@ -78,11 +84,15 @@ async function fetchAllWeather(ctx, opts) {
     var yesterday = null;
 
     if (locationId) {
-        yesterday = await fetchYesterday(ctx, {
-            host: opts.host,
-            apiKey: opts.apiKey,
-            locationId: locationId
-        });
+        try {
+            yesterday = await fetchYesterday(ctx, {
+                host: opts.host,
+                apiKey: opts.apiKey,
+                locationId: locationId
+            });
+        } catch (e) {
+            console.log("yesterday fetch error: " + safeMsg(e));
+        }
     }
 
     return { now: now, hourly: hourly, daily: daily, yesterday: yesterday, locationInfo: locationInfo, ts: Date.now() };
@@ -125,19 +135,30 @@ async function fetchJson(ctx, url) {
 }
 
 async function fetchLocationInfo(ctx, opts) {
-    var url = opts.host + "/v2/city/lookup?location=" + encodeURIComponent(opts.location) + "&key=" + encodeURIComponent(opts.apiKey);
-    try {
-        var body = await fetchJson(ctx, url);
-        if (body.code !== "200" || !body.location || body.location.length === 0) return null;
-        var loc = body.location[0];
-        return {
-            id: loc.id || "",
-            name: formatLocationName(loc)
-        };
-    } catch (e) {
-        console.log("location lookup error: " + safeMsg(e));
-        return null;
+    var hosts = [];
+    if (opts.geoHost) hosts.push(opts.geoHost);
+    if (opts.host) hosts.push(opts.host);
+    if (!hosts.some(function (h) { return /geoapi\.qweather\.com/i.test(String(h || "")); })) {
+        hosts.push("https://geoapi.qweather.com");
     }
+
+    for (var i = 0; i < hosts.length; i++) {
+        var host = normalizeHost(hosts[i]);
+        if (!host) continue;
+        var url = host + "/v2/city/lookup?location=" + encodeURIComponent(opts.location) + "&key=" + encodeURIComponent(opts.apiKey);
+        try {
+            var body = await fetchJson(ctx, url);
+            if (body.code !== "200" || !body.location || body.location.length === 0) continue;
+            var loc = body.location[0];
+            return {
+                id: loc.id || "",
+                name: formatLocationName(loc)
+            };
+        } catch (e) {
+            console.log("location lookup error: " + safeMsg(e));
+        }
+    }
+    return null;
 }
 
 function formatLocationName(loc) {
@@ -151,12 +172,66 @@ function formatLocationName(loc) {
 function resolveLocationName(input, locationInfo, fallback) {
     if (input) return input;
     if (locationInfo && locationInfo.name) return locationInfo.name;
+    if (looksLikeCoordinate(fallback)) return "当前位置";
     return fallback || "--";
+}
+
+function attachHistory(cached, data) {
+    var history = cached && cached.history ? cached.history : null;
+    var nowRaw = data && data.now ? data.now.now : null;
+    var updateTime = data && data.now ? data.now.updateTime : "";
+    history = updateHistory(history, nowRaw, updateTime);
+    if (data) data.history = history;
+    return data;
+}
+
+function updateHistory(history, nowRaw, updateTime) {
+    if (!nowRaw) return history || null;
+    var temp = toFloat(nowRaw.temp);
+    if (!isFinite(temp)) return history || null;
+    var obsDate = parseObsDate(nowRaw, updateTime);
+    var dateKey = formatDateKey(obsDate);
+    var hour = obsDate.getHours();
+    history = history && typeof history === "object" ? history : { days: {}, updatedAt: Date.now() };
+    if (!history.days) history.days = {};
+    var day = history.days[dateKey] || { points: {}, updatedAt: Date.now() };
+    if (!day.points || typeof day.points !== "object") day.points = {};
+    day.points[pad2(hour)] = temp;
+    day.updatedAt = Date.now();
+    history.days[dateKey] = day;
+    history.updatedAt = Date.now();
+    return trimHistory(history);
+}
+
+function parseObsDate(nowRaw, updateTime) {
+    var ts = nowRaw && nowRaw.obsTime ? nowRaw.obsTime : updateTime;
+    var d = ts ? new Date(ts) : new Date();
+    if (isNaN(d.getTime())) d = new Date();
+    return d;
+}
+
+function getObsDateKey(nowRaw, updateTime) {
+    return formatDateKey(parseObsDate(nowRaw, updateTime));
+}
+
+function formatDateKey(d) {
+    return formatDateCompact(d);
+}
+
+function trimHistory(history) {
+    if (!history || !history.days) return history;
+    var keys = Object.keys(history.days).sort();
+    if (keys.length <= HISTORY_DAYS) return history;
+    var cut = keys.slice(0, keys.length - HISTORY_DAYS);
+    for (var i = 0; i < cut.length; i++) {
+        delete history.days[cut[i]];
+    }
+    return history;
 }
 
 // ============== 视图模型 ==============
 
-function buildView(data, locationName, accent) {
+function buildView(data, locationName, accentInput) {
     var nowRaw = data.now ? data.now.now : null;
     var hourlyRaw = data.hourly ? data.hourly.hourly : [];
     var dailyRaw = data.daily ? data.daily.daily : [];
@@ -172,7 +247,9 @@ function buildView(data, locationName, accent) {
     var iconName = iconForWeather(now.icon, isNight);
 
     var comfort = calcComfort(now, hourly[0]);
-    var yesterdayDiff = calcYesterdayDiff(now, yesterday);
+    var advice = calcClothingAdvice(now, hourly[0]);
+    var yesterdayDiff = calcYesterdayDiff(now, yesterday, data.history);
+    var theme = resolveTheme(now, isNight, accentInput);
 
     return {
         location: locationName,
@@ -183,9 +260,56 @@ function buildView(data, locationName, accent) {
         isNight: isNight,
         iconName: iconName,
         comfort: comfort,
+        advice: advice,
         yesterdayDiff: yesterdayDiff,
-        accent: accent
+        accent: theme.accent,
+        theme: theme
     };
+}
+
+function resolveTheme(now, isNight, accentInput) {
+    var theme = {
+        accent: "#60A5FA",
+        gradient: ["#0B1220", "#0F172A", "#111827"],
+        card: "rgba(255,255,255,0.06)",
+        cardStrong: "rgba(255,255,255,0.1)",
+        tagBg: "rgba(255,255,255,0.08)",
+        barBg: "rgba(255,255,255,0.28)",
+        textMuted: "rgba(255,255,255,0.78)",
+        textSubtle: "rgba(255,255,255,0.55)",
+        highlight: "rgba(255,255,255,0.12)"
+    };
+
+    var code = parseInt(now.icon || "100", 10);
+    var temp = toFloat(now.temp);
+
+    if (isNight) {
+        theme.accent = "#8B5CF6";
+        theme.gradient = ["#0B1020", "#111827", "#1E1B4B"];
+    }
+
+    if (code >= 300 && code <= 399) {
+        theme.accent = "#38BDF8";
+        theme.gradient = ["#0B1220", "#0F172A", "#1E3A8A"];
+    } else if (code >= 400 && code <= 499) {
+        theme.accent = "#A5F3FC";
+        theme.gradient = ["#0B1220", "#0F172A", "#334155"];
+    } else if (code >= 500 && code <= 599) {
+        theme.accent = "#FCD34D";
+        theme.gradient = ["#0B1220", "#1F2937", "#78350F"];
+    } else if (code >= 700 && code <= 799) {
+        theme.accent = "#94A3B8";
+        theme.gradient = ["#0B1220", "#111827", "#334155"];
+    } else if (temp >= 30) {
+        theme.accent = "#F97316";
+        theme.gradient = ["#0B1220", "#1F2937", "#7C2D12"];
+    } else if (temp <= 5) {
+        theme.accent = "#60A5FA";
+        theme.gradient = ["#0B1220", "#0F172A", "#1D4ED8"];
+    }
+
+    if (accentInput) theme.accent = accentInput;
+    return theme;
 }
 
 function normalizeNow(now, updateTime) {
@@ -260,7 +384,8 @@ function buildSmall(view, title, accent, status, nextRefresh) {
     var now = view.now;
     var comfort = view.comfort;
     var diff = view.yesterdayDiff;
-    var today = view.today;
+    var advice = view.advice;
+    var theme = view.theme;
 
     return shell([
         header(view.location, now, view.iconName, accent, title, true),
@@ -269,8 +394,8 @@ function buildSmall(view, title, accent, status, nextRefresh) {
             txt(formatTemp(now.temp), 30, "bold", "#FFFFFF"),
             sp(6),
             vstack([
-                txt(now.text, 11, "semibold", "rgba(255,255,255,0.8)", { maxLines: 1 }),
-                txt("体感 " + formatTemp(now.feelsLike), 10, "medium", "rgba(255,255,255,0.6)")
+                txt(now.text, 11, "semibold", theme.textMuted, { maxLines: 1 }),
+                txt("体感 " + formatTemp(now.feelsLike), 10, "medium", theme.textSubtle)
             ], { gap: 2, alignItems: "start" })
         ], { gap: 6, alignItems: "center" }),
         sp(6),
@@ -279,13 +404,15 @@ function buildSmall(view, title, accent, status, nextRefresh) {
             tag(diff.text, diff.color, diff.bg)
         ], { gap: 6 }),
         sp(6),
+        tag("穿衣 " + advice.short, advice.color, advice.bg, 9),
+        sp(6),
         hstack([
             metricInline("风速", formatWind(now.windSpeed)),
             metricInline("湿度", formatPercent(now.humidity))
         ], { gap: 8 }),
         sp(),
-        footer(status)
-    ], nextRefresh, [14, 16, 12, 16]);
+        footer(status, theme)
+    ], nextRefresh, [14, 16, 12, 16], theme);
 }
 
 function buildMedium(view, title, accent, status, nextRefresh) {
@@ -293,16 +420,19 @@ function buildMedium(view, title, accent, status, nextRefresh) {
     var today = view.today;
     var hourly = view.hourly.slice(0, 6);
     var daily = view.daily.slice(0, 3);
+    var theme = view.theme;
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
         sp(8),
         hstack([
             vstack([
-                txt(now.text, 12, "semibold", "rgba(255,255,255,0.8)"),
-                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 10, "medium", "rgba(255,255,255,0.6)"),
+                txt(now.text, 12, "semibold", theme.textMuted),
+                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 10, "medium", theme.textSubtle),
                 sp(6),
-                comfortCard(view.comfort)
+                comfortCard(view.comfort, theme),
+                sp(6),
+                clothingCard(view.advice, theme)
             ], { gap: 2, flex: 1 }),
             sp(),
             vstack([
@@ -312,18 +442,18 @@ function buildMedium(view, title, accent, status, nextRefresh) {
         ], { alignItems: "center" }),
         sp(8),
         hstack([
-            metricBlock("体感", formatTemp(now.feelsLike)),
-            metricBlock("湿度", formatPercent(now.humidity)),
-            metricBlock("风速", formatWind(now.windSpeed)),
-            metricBlock("降水", formatPrecip(now.precip))
+            metricBlock("体感", formatTemp(now.feelsLike), theme),
+            metricBlock("湿度", formatPercent(now.humidity), theme),
+            metricBlock("风速", formatWind(now.windSpeed), theme),
+            metricBlock("降水", formatPrecip(now.precip), theme)
         ], { gap: 6 }),
         sp(8),
-        hourlyStrip(hourly, accent),
+        hourlyStrip(hourly, accent, theme),
         sp(8),
-        hstack(daily.map(function (d) { return dailyCard(d, accent); }), { gap: 6 }),
+        hstack(daily.map(function (d) { return dailyCard(d, accent, theme); }), { gap: 6 }),
         sp(),
-        footer(status)
-    ], nextRefresh);
+        footer(status, theme)
+    ], nextRefresh, null, theme);
 }
 
 function buildLarge(view, title, accent, status, nextRefresh) {
@@ -331,20 +461,23 @@ function buildLarge(view, title, accent, status, nextRefresh) {
     var today = view.today;
     var hourly = view.hourly.slice(0, 8);
     var daily = view.daily.slice(0, 6);
+    var theme = view.theme;
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
         sp(8),
         hstack([
             vstack([
-                txt(now.text, 12, "semibold", "rgba(255,255,255,0.8)"),
-                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 10, "medium", "rgba(255,255,255,0.6)"),
+                txt(now.text, 12, "semibold", theme.textMuted),
+                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 10, "medium", theme.textSubtle),
                 sp(6),
-                comfortCard(view.comfort),
+                comfortCard(view.comfort, theme),
+                sp(6),
+                clothingCard(view.advice, theme),
                 sp(6),
                 hstack([
-                    infoChip("日出", today ? today.sunrise : "--"),
-                    infoChip("日落", today ? today.sunset : "--")
+                    infoChip("日出", today ? today.sunrise : "--", theme),
+                    infoChip("日落", today ? today.sunset : "--", theme)
                 ], { gap: 6 })
             ], { gap: 2, flex: 1 }),
             sp(),
@@ -356,21 +489,21 @@ function buildLarge(view, title, accent, status, nextRefresh) {
         ], { alignItems: "center" }),
         sp(10),
         hstack([
-            metricBlock("体感", formatTemp(now.feelsLike)),
-            metricBlock("湿度", formatPercent(now.humidity)),
-            metricBlock("风速", formatWind(now.windSpeed)),
-            metricBlock("能见度", formatVis(now.vis))
+            metricBlock("体感", formatTemp(now.feelsLike), theme),
+            metricBlock("湿度", formatPercent(now.humidity), theme),
+            metricBlock("风速", formatWind(now.windSpeed), theme),
+            metricBlock("能见度", formatVis(now.vis), theme)
         ], { gap: 6 }),
         sp(10),
-        hourlyStrip(hourly, accent),
+        hourlyStrip(hourly, accent, theme),
         sp(10),
         hstack([
-            vstack(daily.slice(0, 3).map(function (d) { return dailyCard(d, accent); }), { gap: 6, flex: 1 }),
-            vstack(daily.slice(3, 6).map(function (d) { return dailyCard(d, accent); }), { gap: 6, flex: 1 })
+            vstack(daily.slice(0, 3).map(function (d) { return dailyCard(d, accent, theme); }), { gap: 6, flex: 1 }),
+            vstack(daily.slice(3, 6).map(function (d) { return dailyCard(d, accent, theme); }), { gap: 6, flex: 1 })
         ], { gap: 8, alignItems: "start" }),
         sp(),
-        footer(status)
-    ], nextRefresh, [14, 16, 12, 16]);
+        footer(status, theme)
+    ], nextRefresh, [14, 16, 12, 16], theme);
 }
 
 function buildCircular(view, accent) {
@@ -413,14 +546,15 @@ function buildInline(view, accent) {
 
 // ============== UI 组件 ==============
 
-function shell(children, nextRefresh, padding) {
+function shell(children, nextRefresh, padding, theme) {
+    var bg = theme && theme.gradient ? theme.gradient : ["#0B1220", "#0F172A", "#111827"];
     return {
         type: "widget",
         gap: 0,
         padding: padding || [12, 14, 10, 14],
         backgroundGradient: {
             type: "linear",
-            colors: ["#0B1220", "#0F172A", "#111827"],
+            colors: bg,
             startPoint: { x: 0, y: 0 },
             endPoint: { x: 1, y: 1 }
         },
@@ -439,15 +573,15 @@ function header(location, now, iconName, accent, title, compact) {
     ], { gap: 6 });
 }
 
-function comfortCard(comfort) {
+function comfortCard(comfort, theme) {
     return vstack([
         hstack([
-            txt("通勤舒适度", 10, "medium", "rgba(255,255,255,0.6)"),
+            txt("通勤舒适度", 10, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.6)"),
             sp(),
             tag(comfort.level, comfort.color, comfort.bg)
         ], { gap: 6 }),
         txt(comfort.score + "分", 22, "bold", "#FFFFFF"),
-        progressBar(comfort.score / 100, comfort.color)
+        progressBar(comfort.score / 100, comfort.color, theme)
     ], { gap: 4 });
 }
 
@@ -455,45 +589,47 @@ function comfortTag(comfort) {
     return tag("舒适度 " + comfort.level + " " + comfort.score + "分", comfort.color, comfort.bg);
 }
 
-function hourlyStrip(hourly, accent) {
+function hourlyStrip(hourly, accent, theme) {
     if (!hourly || hourly.length === 0) return sp();
     var temps = hourly.map(function (h) { return h.temp; });
     var min = minOf(temps);
     var max = maxOf(temps);
+    var barBg = theme ? theme.barBg : "rgba(255,255,255,0.35)";
+    var textSubtle = theme ? theme.textSubtle : "rgba(255,255,255,0.5)";
 
     return hstack(hourly.map(function (h) {
         var ratio = max === min ? 0.5 : (h.temp - min) / (max - min);
         var barHeight = 6 + ratio * 20;
         return vstack([
-            txt(formatHour(h.time), 8, "medium", "rgba(255,255,255,0.5)"),
+            txt(formatHour(h.time), 8, "medium", textSubtle),
             sp(2),
-            { type: "stack", width: 6, height: barHeight, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.35)", children: [] },
+            { type: "stack", width: 6, height: barHeight, borderRadius: 3, backgroundColor: barBg, children: [] },
             txt(formatTemp(h.temp), 9, "semibold", "#FFFFFFCC", { minScale: 0.6 })
         ], { gap: 3, alignItems: "center", width: 30 });
     }), { gap: 6, alignItems: "end" });
 }
 
-function dailyCard(d, accent) {
+function dailyCard(d, accent, theme) {
     return vstack([
-        txt(formatWeekday(d.date), 9, "medium", "rgba(255,255,255,0.6)"),
+        txt(formatWeekday(d.date), 9, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.6)"),
         icon(iconForWeather(d.iconDay, false), 14, accent),
         txt(formatTemp(d.tempMax) + "/" + formatTemp(d.tempMin), 9, "semibold", "#FFFFFFCC")
     ], {
         gap: 4,
         padding: [6, 8, 6, 8],
-        backgroundColor: "rgba(255,255,255,0.06)",
+        backgroundColor: theme ? theme.card : "rgba(255,255,255,0.06)",
         borderRadius: 8
     });
 }
 
-function metricBlock(label, value) {
+function metricBlock(label, value, theme) {
     return vstack([
-        txt(label, 9, "medium", "rgba(255,255,255,0.5)"),
+        txt(label, 9, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.5)"),
         txt(value, 12, "bold", "#FFFFFF")
     ], {
         gap: 2,
         padding: [6, 8, 6, 8],
-        backgroundColor: "rgba(255,255,255,0.06)",
+        backgroundColor: theme ? theme.card : "rgba(255,255,255,0.06)",
         borderRadius: 8
     });
 }
@@ -505,26 +641,26 @@ function metricInline(label, value) {
     ], { gap: 4 });
 }
 
-function infoChip(label, value) {
+function infoChip(label, value, theme) {
     return hstack([
-        txt(label, 9, "medium", "rgba(255,255,255,0.5)"),
+        txt(label, 9, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.5)"),
         txt(value || "--", 10, "semibold", "#FFFFFF")
     ], {
         gap: 4,
         padding: [4, 6, 4, 6],
-        backgroundColor: "rgba(255,255,255,0.06)",
+        backgroundColor: theme ? theme.card : "rgba(255,255,255,0.06)",
         borderRadius: 8
     });
 }
 
-function progressBar(ratio, color) {
+function progressBar(ratio, color, theme) {
     var safe = clamp(ratio, 0, 1);
     return {
         type: "stack",
         direction: "row",
         height: 6,
         borderRadius: 3,
-        backgroundColor: "rgba(255,255,255,0.12)",
+        backgroundColor: theme ? theme.highlight : "rgba(255,255,255,0.12)",
         children: [
             { type: "stack", flex: Math.max(0.02, safe), height: 6, borderRadius: 3, backgroundColor: color, children: [] },
             { type: "stack", flex: 1 - safe, children: [] }
@@ -532,16 +668,17 @@ function progressBar(ratio, color) {
     };
 }
 
-function footer(status) {
+function footer(status, theme) {
     var isLive = status === "live";
+    var muted = theme ? theme.textSubtle : "rgba(255,255,255,0.25)";
     return hstack([
-        icon("clock.arrow.circlepath", 8, "rgba(255,255,255,0.25)"),
+        icon("clock.arrow.circlepath", 8, muted),
         {
             type: "date",
             date: new Date().toISOString(),
             format: "relative",
             font: { size: 9, weight: "medium" },
-            textColor: "rgba(255,255,255,0.25)"
+            textColor: muted
         },
         sp(),
         tag(isLive ? "实时" : "缓存", isLive ? "#10B981" : "#F59E0B", isLive ? "rgba(16,185,129,0.16)" : "rgba(245,158,11,0.16)", 8)
@@ -553,6 +690,18 @@ function tag(text, color, bg, size) {
         padding: [2, 6, 2, 6],
         backgroundColor: bg || "rgba(255,255,255,0.08)",
         borderRadius: 6
+    });
+}
+
+function clothingCard(advice, theme) {
+    return vstack([
+        txt("穿衣建议", 10, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.6)"),
+        txt(advice.detail, 12, "semibold", "#FFFFFF", { maxLines: 2, minScale: 0.7 })
+    ], {
+        gap: 2,
+        padding: [6, 8, 6, 8],
+        backgroundColor: theme ? theme.cardStrong : "rgba(255,255,255,0.1)",
+        borderRadius: 8
     });
 }
 
@@ -613,27 +762,101 @@ function calcComfort(now, nextHour) {
     };
 }
 
-function calcYesterdayDiff(now, yesterday) {
-    if (!yesterday || !Array.isArray(yesterday.hourly) || yesterday.hourly.length === 0) {
-        return { diff: NaN, text: "较昨 --", color: "#94A3B8", bg: "rgba(148,163,184,0.16)" };
-    }
+function calcClothingAdvice(now, nextHour) {
+    var feel = toFloat(now.feelsLike);
+    var temp = isFinite(feel) ? feel : toFloat(now.temp);
+    var wind = toFloat(now.windSpeed);
+    var humidity = toFloat(now.humidity);
+    var precip = toFloat(now.precip);
+    var pop = nextHour ? toFloat(nextHour.pop) : 0;
 
-    var nowHour = new Date().getHours();
-    var best = null;
+    var short = "薄外套";
+    var color = "#34D399";
+    var bg = "rgba(52,211,153,0.16)";
+
+    if (temp >= 30) { short = "短袖为主"; color = "#F97316"; bg = "rgba(249,115,22,0.16)"; }
+    else if (temp >= 24) { short = "短袖/薄长袖"; color = "#F59E0B"; bg = "rgba(245,158,11,0.16)"; }
+    else if (temp >= 18) { short = "薄外套/卫衣"; color = "#34D399"; bg = "rgba(52,211,153,0.16)"; }
+    else if (temp >= 12) { short = "夹克/针织衫"; color = "#60A5FA"; bg = "rgba(96,165,250,0.16)"; }
+    else if (temp >= 5) { short = "厚外套/毛衣"; color = "#93C5FD"; bg = "rgba(147,197,253,0.16)"; }
+    else { short = "羽绒/保暖内衣"; color = "#A78BFA"; bg = "rgba(167,139,250,0.16)"; }
+
+    var tips = [];
+    if (precip > 0 || pop >= 50) tips.push("带伞");
+    if (wind > 20) tips.push("防风");
+    if (temp <= 8) tips.push("注意保暖");
+    if (temp >= 28 && humidity >= 75) tips.push("防闷热");
+
+    var detail = tips.length ? short + " · " + tips.join(" / ") : short;
+
+    return {
+        short: short,
+        detail: detail,
+        color: color,
+        bg: bg
+    };
+}
+
+function pickHistoryTemp(points, targetHour) {
+    if (!points) return NaN;
+    var keys = Object.keys(points);
+    if (keys.length === 0) return NaN;
+    var direct = points[pad2(targetHour)];
+    if (direct != null && isFinite(toFloat(direct))) return toFloat(direct);
+    var bestKey = null;
     var bestGap = 24;
-
-    for (var i = 0; i < yesterday.hourly.length; i++) {
-        var h = yesterday.hourly[i];
-        var hour = new Date(h.time).getHours();
-        var gap = Math.abs(hour - nowHour);
-        if (gap < bestGap) { best = h; bestGap = gap; }
+    for (var i = 0; i < keys.length; i++) {
+        var hour = parseInt(keys[i], 10);
+        if (!isFinite(hour)) continue;
+        var gap = Math.abs(hour - targetHour);
+        if (gap < bestGap) { bestKey = keys[i]; bestGap = gap; }
     }
+    if (!bestKey) return NaN;
+    return toFloat(points[bestKey]);
+}
 
-    if (!best || !isFinite(best.temp)) {
+function calcYesterdayDiff(now, yesterday, history) {
+    var nowTemp = toFloat(now && now.temp);
+    if (!isFinite(nowTemp)) {
         return { diff: NaN, text: "较昨 --", color: "#94A3B8", bg: "rgba(148,163,184,0.16)" };
     }
 
-    var diff = toFloat(now.temp) - toFloat(best.temp);
+    var nowDate = parseObsDate(now, "");
+    var nowHour = nowDate.getHours();
+    var bestTemp = NaN;
+
+    if (yesterday && Array.isArray(yesterday.hourly) && yesterday.hourly.length > 0) {
+        var best = null;
+        var bestGap = 24;
+
+        for (var i = 0; i < yesterday.hourly.length; i++) {
+            var h = yesterday.hourly[i];
+            var time = new Date(h.time);
+            if (isNaN(time.getTime())) continue;
+            var hour = time.getHours();
+            var gap = Math.abs(hour - nowHour);
+            if (gap < bestGap) { best = h; bestGap = gap; }
+        }
+
+        if (best && isFinite(toFloat(best.temp))) {
+            bestTemp = toFloat(best.temp);
+        }
+    }
+
+    if (!isFinite(bestTemp) && history && history.days) {
+        var yDate = new Date(nowDate.getTime() - 86400000);
+        var yKey = formatDateKey(yDate);
+        var day = history.days[yKey];
+        if (day && day.points) {
+            bestTemp = pickHistoryTemp(day.points, nowHour);
+        }
+    }
+
+    if (!isFinite(bestTemp)) {
+        return { diff: NaN, text: "较昨 --", color: "#94A3B8", bg: "rgba(148,163,184,0.16)" };
+    }
+
+    var diff = nowTemp - bestTemp;
     var sign = diff > 0 ? "+" : diff < 0 ? "-" : "±";
     var text = "较昨 " + sign + Math.abs(diff).toFixed(0) + "°";
 
@@ -795,6 +1018,19 @@ function isTrue(val) {
 
 function isValidLocationId(val) {
     return /^\d+$/.test(String(val || ""));
+}
+
+function looksLikeCoordinate(val) {
+    var text = String(val || "").trim();
+    if (!text) return false;
+    if (!/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(text)) return false;
+    var parts = text.split(",");
+    var a = parseFloat(parts[0]);
+    var b = parseFloat(parts[1]);
+    if (!isFinite(a) || !isFinite(b)) return false;
+    var latOk = Math.abs(a) <= 90 && Math.abs(b) <= 180;
+    var lonOk = Math.abs(a) <= 180 && Math.abs(b) <= 90;
+    return latOk || lonOk;
 }
 
 function normalizeHost(raw) {

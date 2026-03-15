@@ -1,5 +1,5 @@
 name: "Weather Commute"
-description: "和风天气实况/逐小时/7日 + 通勤舒适度指数 + 昨日温差对比，多尺寸自适配"
+description: "和风天气实况/逐小时/7日 + 通勤舒适度指数 + 穿衣建议 + 昨日温差对比 + 多色系主题，多尺寸自适配"
 author: "kingsley"
 scriptings:
 # ┌─────────────────────────────────────────────────────┐
@@ -11,7 +11,11 @@ scriptings:
 # │   小组件标题                                          │
 # │                                                     │
 # │ ACCENT_COLOR (可选，默认 "#60A5FA")                │
-# │   主题强调色                                          │
+# │   主题强调色；不填则按昼夜/天气/温度自动变换           │
+# │                                                     │
+# │ GEO_HOST (可选)                                      │
+# │   GeoAPI Host，用于经纬度解析地名                      │
+# │   默认 https://geoapi.qweather.com                   │
 # │                                                     │
 # │ HOST (必填)                                           │
 # │   和风天气 API Host（可仅填域名，将自动补全 https://）  │
@@ -20,7 +24,7 @@ scriptings:
 # │   和风天气 API Key                                    │
 # │                                                     │
 # │ LOCATION (必填)                                       │
-# │   经纬度或 LocationID                                 │
+# │   经纬度（经度,纬度）或 LocationID                    │
 # │                                                     │
 # │ LOCATION_NAME (可选，自动解析)                        │
 # │   未填写时将根据 LOCATION 自动解析地点名称            │
