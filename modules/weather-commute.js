@@ -492,36 +492,36 @@ function buildLarge(view, title, accent, status, nextRefresh) {
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
-        sp(6),
+        sp(8),
         hstack([
             vstack([
-                txt(now.text, 16, "bold", "#FFFFFF", { maxLines: 1, minScale: 0.7 }),
+                txt(now.text, 16, "bold", theme.textMuted, { maxLines: 1, minScale: 0.7 }),
                 txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 })
             ], { flex: 1, gap: 4, alignItems: "start" }),
-            sp(),
+            sp(12),
             vstack([
                 icon(view.iconName, 30, accent),
                 txt(formatTemp(now.temp), 42, "bold", "#FFFFFF", { minScale: 0.5, maxLines: 1 })
-            ], { gap: 0, alignItems: "end", width: 86 })
-        ], { alignItems: "center" }),
-        sp(6),
+            ], { alignItems: "center", gap: 2, width: 86 })
+        ], { alignItems: "start" }),
+        sp(8),
         hstack([
             metricBlock("舒适度", view.comfort.score + "分", theme),
             metricBlock("较昨日", view.yesterdayDiff.text.replace("较昨 ", ""), theme),
             metricBlock("体感", formatTemp(now.feelsLike), theme),
             metricBlock("能见", formatVis(now.vis), theme)
         ], { gap: 6 }),
-        sp(4),
+        sp(6),
         noticeCard("穿衣建议", view.advice.detail, view.advice.color, theme, "thermometer.medium"),
-        sp(4),
+        sp(6),
         noticeCard("降雨提醒", rainAlert.detail, rainAlert.color, theme, "cloud.rain"),
-        sp(6),
+        sp(8),
         hourlyStrip(hourly, accent, theme),
-        sp(6),
+        sp(10),
         hstack(daily.map(function (d) { return dailyCardLarge(d, accent, theme); }), { gap: 6 }),
-        sp(),
+        sp(4),
         footer(status, theme)
-    ], nextRefresh, [12, 14, 10, 14], theme);
+    ], nextRefresh, [14, 16, 12, 16], theme);
 }
 
 function buildCircular(view, accent) {
