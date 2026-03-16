@@ -422,7 +422,9 @@ function buildMedium(view, title, accent, status, nextRefresh) {
                 sp(8),
                 hstack([
                     tag("舒适度 " + view.comfort.score, view.comfort.color, view.comfort.bg, 9),
-                    sp(6),
+                    sp(4),
+                    tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg, 9),
+                    sp(4),
                     tag("穿衣 " + view.advice.short, view.advice.color, view.advice.bg, 9)
                 ], { gap: 0 }),
                 sp(8),
@@ -459,8 +461,14 @@ function buildLarge(view, title, accent, status, nextRefresh) {
         hstack([
             vstack([
                 txt(now.text, 16, "bold", theme.textMuted, { maxLines: 1, minScale: 0.7 }),
-                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 })
-            ], { flex: 1, gap: 4 }),
+                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 }),
+                sp(4),
+                hstack([
+                    tag("舒适度 " + view.comfort.score, view.comfort.color, view.comfort.bg, 9),
+                    sp(4),
+                    tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg, 9)
+                ], { gap: 0 })
+            ], { flex: 1, gap: 4, alignItems: "start" }),
             vstack([
                 icon(view.iconName, 32, accent),
                 txt(formatTemp(now.temp), 46, "bold", "#FFFFFF", { minScale: 0.5, maxLines: 1 })
@@ -590,13 +598,15 @@ function hourlyStrip(hourly, accent, theme) {
     return hstack(hourly.map(function (h) {
         var ratio = max === min ? 0.5 : (h.temp - min) / (max - min);
         var barHeight = 4 + ratio * 16;
+        var emptyHeight = 20 - barHeight;
         return vstack([
             txt(formatHour(h.time), 8, "medium", textSubtle),
-            sp(1),
+            sp(emptyHeight + 2),
             { type: "stack", width: 5, height: barHeight, borderRadius: 2.5, backgroundColor: barBg, children: [] },
+            sp(2),
             txt(formatTemp(h.temp), 9, "semibold", "#FFFFFFCC", { minScale: 0.6 })
-        ], { gap: 2, alignItems: "center", width: itemWidth });
-    }), { gap: itemGap, alignItems: "end", height: stripHeight });
+        ], { gap: 0, alignItems: "center", width: itemWidth });
+    }), { gap: itemGap, alignItems: "center", height: stripHeight });
 }
 
 function dailyCard(d, accent, theme) {
