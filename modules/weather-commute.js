@@ -430,10 +430,6 @@ function buildMedium(view, title, accent, status, nextRefresh) {
         sp(4),
         tag("穿衣 " + view.advice.short, view.advice.color, view.advice.bg, 9)
     ];
-    if (rainAlert && rainAlert.active) {
-        summaryTags.push(sp(4));
-        summaryTags.push(tag(rainAlert.short, rainAlert.color, rainAlert.bg, 9));
-    }
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
@@ -462,6 +458,13 @@ function buildMedium(view, title, accent, status, nextRefresh) {
             ], { gap: 2, alignItems: "center" })
         ], { alignItems: "center" }),
         sp(),
+        hstack([
+            txt("降雨提醒", 10, "medium", theme.textSubtle),
+            sp(8),
+            txt(rainAlert.short, 11, "semibold", "#FFFFFF", { minScale: 0.7, maxLines: 1 }),
+            sp()
+        ], { padding: [7, 10, 7, 10], backgroundColor: rainAlert.bg, borderRadius: 8, alignItems: "center" }),
+        sp(8),
         hourlyStrip(hourly, accent, theme),
         sp(4),
         footer(status, theme)
@@ -475,9 +478,6 @@ function buildLarge(view, title, accent, status, nextRefresh) {
     var daily = view.daily.slice(0, 4);
     var rainAlert = view.rainAlert;
     var theme = view.theme;
-    var noticeText = rainAlert && rainAlert.active ? rainAlert.detail : view.advice.detail;
-    var noticeLabel = rainAlert && rainAlert.active ? "降雨提醒" : "穿衣建议";
-    var noticeBg = rainAlert && rainAlert.active ? rainAlert.bg : theme.cardStrong;
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
@@ -507,11 +507,18 @@ function buildLarge(view, title, accent, status, nextRefresh) {
         ], { gap: 6 }),
         sp(8),
         hstack([
-            txt(noticeLabel, 10, "medium", theme.textSubtle),
+            txt("穿衣建议", 10, "medium", theme.textSubtle),
             sp(8),
-            txt(noticeText, 11, "semibold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }),
+            txt(view.advice.detail, 11, "semibold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }),
             sp()
-        ], { padding: [8, 12, 8, 12], backgroundColor: noticeBg, borderRadius: 8, alignItems: "center" }),
+        ], { padding: [8, 12, 8, 12], backgroundColor: theme.cardStrong, borderRadius: 8, alignItems: "center" }),
+        sp(8),
+        hstack([
+            txt("降雨提醒", 10, "medium", theme.textSubtle),
+            sp(8),
+            txt(rainAlert.detail, 11, "semibold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }),
+            sp()
+        ], { padding: [8, 12, 8, 12], backgroundColor: rainAlert.bg, borderRadius: 8, alignItems: "center" }),
         sp(8),
         hourlyStrip(hourly, accent, theme),
         sp(8),
@@ -855,8 +862,8 @@ function calcRainAlert(now, hourly) {
     if (isFinite(currentPrecip) && currentPrecip >= RAIN_ALERT_PRECIP_THRESHOLD) {
         return {
             active: true,
-            short: "正在下雨",
-            detail: "当前有降雨，通勤建议带伞",
+            short: "正在下雨，请带伞",
+            detail: "当前正在下雨，出门建议带伞",
             color: "#38BDF8",
             bg: "rgba(56,189,248,0.18)"
         };
@@ -886,16 +893,16 @@ function calcRainAlert(now, hourly) {
     if (candidates.length === 0) {
         return {
             active: false,
-            short: "",
-            detail: "",
-            color: "#38BDF8",
-            bg: "rgba(56,189,248,0.18)"
+            short: "未来2小时无雨，放心出行",
+            detail: "未来2小时无雨，通勤可放心出行",
+            color: "#34D399",
+            bg: "rgba(52,211,153,0.16)"
         };
     }
 
     var nextRain = candidates[0];
     var leadMinutes = Math.max(0, Math.round((nextRain.time.getTime() - nowTime.getTime()) / 60000));
-    var short = leadMinutes <= 30 ? "半小时内有雨" : "2小时内有雨";
+    var short = leadMinutes <= 30 ? "半小时内有雨，请带伞" : "2小时内有雨，请带伞";
     var detail = short + "，约 " + formatClock(nextRain.time.toISOString()) + " 开始";
     if (isFinite(nextRain.pop)) detail += "，降雨概率 " + Math.round(nextRain.pop) + "%";
 
