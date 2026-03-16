@@ -423,42 +423,34 @@ function buildMedium(view, title, accent, status, nextRefresh) {
     var hourly = view.hourly.slice(0, 6);
     var rainAlert = view.rainAlert;
     var theme = view.theme;
-    
-    var summaryTags = [
-        tag("舒适度 " + view.comfort.score, view.comfort.color, view.comfort.bg, 9),
-        sp(4),
-        tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg, 9),
-        sp(4),
-        tag(view.advice.short, view.advice.color, view.advice.bg, 9)
-    ];
 
-    var bottomRow;
+    // 标签行：舒适度 + 较昨日 + 穿衣（无雨）/ 降雨提醒（有雨）
+    var tagItems = [
+        tag("舒适度 " + view.comfort.score, view.comfort.color, view.comfort.bg, 9),
+        tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg, 9)
+    ];
     if (rainAlert && rainAlert.active) {
-        bottomRow = noticeCard("降雨", rainAlert.short, rainAlert.color, theme, "cloud.rain", { padding: [4, 8, 4, 8] });
+        tagItems.push(tag(rainAlert.short, rainAlert.color, rainAlert.bg, 9));
     } else {
-        bottomRow = hstack([
-            metricInline("体感", formatTemp(now.feelsLike)),
-            sp(8),
-            metricInline("风速", formatWind(now.windSpeed)),
-            sp(8),
-            metricInline("湿度", formatPercent(now.humidity))
-        ], { gap: 0 });
+        tagItems.push(tag(view.advice.short, view.advice.color, view.advice.bg, 9));
     }
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
-        sp(10),
+        sp(),
         hstack([
             vstack([
+                txt(now.text + "  最高 " + formatTemp(today ? today.tempMax : NaN) + " | 最低 " + formatTemp(today ? today.tempMin : NaN), 12, "semibold", theme.textMuted, { maxLines: 1, minScale: 0.7 }),
+                sp(6),
+                hstack(tagItems, { gap: 4 }),
+                sp(6),
                 hstack([
-                    txt(now.text, 14, "bold", theme.textMuted, { maxLines: 1, minScale: 0.8 }),
-                    sp(6),
-                    txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " | 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.8 })
-                ], { alignItems: "center", gap: 0 }),
-                sp(6),
-                hstack(summaryTags, { gap: 0 }),
-                sp(6),
-                bottomRow
+                    metricInline("体感", formatTemp(now.feelsLike)),
+                    sp(8),
+                    metricInline("风速", formatWind(now.windSpeed)),
+                    sp(8),
+                    metricInline("湿度", formatPercent(now.humidity))
+                ], { gap: 0 })
             ], { flex: 1, gap: 0, alignItems: "start" }),
             sp(4),
             vstack([
@@ -466,7 +458,7 @@ function buildMedium(view, title, accent, status, nextRefresh) {
                 txt(formatTemp(now.temp), 36, "bold", "#FFFFFF", { minScale: 0.5, maxLines: 1 })
             ], { gap: 2, alignItems: "center", width: 62 })
         ], { alignItems: "center" }),
-        sp(10),
+        sp(),
         hourlyStrip(hourly, accent, theme, { compact: true }),
         sp(),
         footer(status, theme)
@@ -487,19 +479,13 @@ function buildLarge(view, title, accent, status, nextRefresh) {
         hstack([
             vstack([
                 txt(now.text, 16, "bold", theme.textMuted, { maxLines: 1, minScale: 0.7 }),
-                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 }),
-                sp(4),
-                hstack([
-                    tag("舒适度 " + view.comfort.score, view.comfort.color, view.comfort.bg, 9),
-                    sp(4),
-                    tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg, 9)
-                ], { gap: 0 })
+                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 })
             ], { flex: 1, gap: 4, alignItems: "start" }),
             sp(12),
             vstack([
                 icon(view.iconName, 30, accent),
                 txt(formatTemp(now.temp), 42, "bold", "#FFFFFF", { minScale: 0.5, maxLines: 1 })
-            ], { alignItems: "end", gap: 2, width: 86 })
+            ], { alignItems: "center", gap: 2, width: 86 })
         ], { alignItems: "start" }),
         sp(8),
         hstack([
@@ -512,9 +498,9 @@ function buildLarge(view, title, accent, status, nextRefresh) {
         noticeCard("穿衣建议", view.advice.detail, view.advice.color, theme, "thermometer.medium"),
         sp(6),
         noticeCard("降雨提醒", rainAlert.detail, rainAlert.color, theme, "cloud.rain"),
-        sp(6),
+        sp(8),
         hourlyStrip(hourly, accent, theme),
-        sp(6),
+        sp(10),
         hstack(daily.map(function (d) { return dailyCardLarge(d, accent, theme); }), { gap: 6 }),
         sp(4),
         footer(status, theme)
