@@ -4,6 +4,9 @@
 var CACHE_KEY = "weather_commute_cache_v1";
 var DEFAULT_REFRESH_MINUTES = 30;
 var HISTORY_DAYS = 7;
+var RAIN_ALERT_WINDOW_HOURS = 2;
+var RAIN_ALERT_POP_THRESHOLD = 50;
+var RAIN_ALERT_PRECIP_THRESHOLD = 0.2;
 
 export default async function (ctx) {
     var env = ctx.env || {};
@@ -236,6 +239,7 @@ function buildView(data, locationName, accentInput) {
 
     var comfort = calcComfort(now, hourly[0]);
     var advice = calcClothingAdvice(now, hourly[0]);
+    var rainAlert = calcRainAlert(now, hourly);
     var yesterdayDiff = calcYesterdayDiff(now, yesterday, data.history);
     var theme = resolveTheme(now, isNight, accentInput);
 
@@ -249,6 +253,7 @@ function buildView(data, locationName, accentInput) {
         iconName: iconName,
         comfort: comfort,
         advice: advice,
+        rainAlert: rainAlert,
         yesterdayDiff: yesterdayDiff,
         accent: theme.accent,
         theme: theme
@@ -373,7 +378,19 @@ function buildSmall(view, title, accent, status, nextRefresh) {
     var comfort = view.comfort;
     var diff = view.yesterdayDiff;
     var advice = view.advice;
+    var rainAlert = view.rainAlert;
     var theme = view.theme;
+    var bottomRow = rainAlert && rainAlert.active
+        ? hstack([
+            tag(rainAlert.short, rainAlert.color, rainAlert.bg, 9),
+            sp(6),
+            metricInline("湿度", formatPercent(now.humidity))
+        ], { gap: 0 })
+        : hstack([
+            metricInline("风速", formatWind(now.windSpeed)),
+            sp(8),
+            metricInline("湿度", formatPercent(now.humidity))
+        ], { gap: 8 });
 
     return shell([
         header(view.location, now, view.iconName, accent, title, true),
@@ -394,10 +411,7 @@ function buildSmall(view, title, accent, status, nextRefresh) {
         sp(6),
         tag("穿衣 " + advice.short, advice.color, advice.bg, 9),
         sp(6),
-        hstack([
-            metricInline("风速", formatWind(now.windSpeed)),
-            metricInline("湿度", formatPercent(now.humidity))
-        ], { gap: 8 }),
+        bottomRow,
         sp(),
         footer(status, theme)
     ], nextRefresh, [14, 16, 12, 16], theme);
@@ -407,7 +421,19 @@ function buildMedium(view, title, accent, status, nextRefresh) {
     var now = view.now;
     var today = view.today;
     var hourly = view.hourly.slice(0, 6);
+    var rainAlert = view.rainAlert;
     var theme = view.theme;
+    var summaryTags = [
+        tag("舒适度 " + view.comfort.score, view.comfort.color, view.comfort.bg, 9),
+        sp(4),
+        tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg, 9),
+        sp(4),
+        tag("穿衣 " + view.advice.short, view.advice.color, view.advice.bg, 9)
+    ];
+    if (rainAlert && rainAlert.active) {
+        summaryTags.push(sp(4));
+        summaryTags.push(tag(rainAlert.short, rainAlert.color, rainAlert.bg, 9));
+    }
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
@@ -420,13 +446,7 @@ function buildMedium(view, title, accent, status, nextRefresh) {
                     txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " | 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 })
                 ], { alignItems: "end", gap: 0 }),
                 sp(8),
-                hstack([
-                    tag("舒适度 " + view.comfort.score, view.comfort.color, view.comfort.bg, 9),
-                    sp(4),
-                    tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg, 9),
-                    sp(4),
-                    tag("穿衣 " + view.advice.short, view.advice.color, view.advice.bg, 9)
-                ], { gap: 0 }),
+                hstack(summaryTags, { gap: 0 }),
                 sp(8),
                 hstack([
                     metricInline("体感", formatTemp(now.feelsLike)),
@@ -453,7 +473,11 @@ function buildLarge(view, title, accent, status, nextRefresh) {
     var today = view.today;
     var hourly = view.hourly.slice(0, 8);
     var daily = view.daily.slice(0, 4);
+    var rainAlert = view.rainAlert;
     var theme = view.theme;
+    var noticeText = rainAlert && rainAlert.active ? rainAlert.detail : view.advice.detail;
+    var noticeLabel = rainAlert && rainAlert.active ? "降雨提醒" : "穿衣建议";
+    var noticeBg = rainAlert && rainAlert.active ? rainAlert.bg : theme.cardStrong;
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
@@ -483,11 +507,11 @@ function buildLarge(view, title, accent, status, nextRefresh) {
         ], { gap: 6 }),
         sp(8),
         hstack([
-            txt("穿衣建议", 10, "medium", theme.textSubtle),
+            txt(noticeLabel, 10, "medium", theme.textSubtle),
             sp(8),
-            txt(view.advice.detail, 11, "semibold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }),
+            txt(noticeText, 11, "semibold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }),
             sp()
-        ], { padding: [8, 12, 8, 12], backgroundColor: theme.cardStrong, borderRadius: 8, alignItems: "center" }),
+        ], { padding: [8, 12, 8, 12], backgroundColor: noticeBg, borderRadius: 8, alignItems: "center" }),
         sp(8),
         hourlyStrip(hourly, accent, theme),
         sp(8),
@@ -513,12 +537,14 @@ function buildCircular(view, accent) {
 
 function buildRectangular(view, accent, title) {
     var now = view.now;
+    var rainAlert = view.rainAlert;
+    var summary = rainAlert && rainAlert.active ? rainAlert.short : now.text;
     return {
         type: "widget",
         gap: 3,
         children: [
             hstack([icon(view.iconName, 10, accent), txt(title, 10, "medium", "rgba(255,255,255,0.7)")], { gap: 4 }),
-            txt(formatTemp(now.temp) + " · " + now.text, 12, "bold"),
+            txt(formatTemp(now.temp) + " · " + summary, 12, "bold"),
             txt(view.comfort.level + " · " + view.yesterdayDiff.text, 10, "medium", "rgba(255,255,255,0.5)")
         ]
     };
@@ -526,11 +552,13 @@ function buildRectangular(view, accent, title) {
 
 function buildInline(view, accent) {
     var now = view.now;
+    var rainAlert = view.rainAlert;
+    var tail = rainAlert && rainAlert.active ? " · " + rainAlert.short : "";
     return {
         type: "widget",
         children: [
             icon(view.iconName, 12, accent),
-            txt(" " + formatTemp(now.temp) + " " + view.comfort.level, 12, "medium", null, { maxLines: 1, minScale: 0.6 })
+            txt(" " + formatTemp(now.temp) + " " + view.comfort.level + tail, 12, "medium", null, { maxLines: 1, minScale: 0.6 })
         ]
     };
 }
@@ -594,10 +622,15 @@ function hourlyStrip(hourly, accent, theme) {
     var itemWidth = itemCount > 6 ? 24 : (itemCount > 4 ? 28 : 30);
     var itemGap = itemCount > 6 ? 4 : 6;
     var stripHeight = 48;
+    // 给小时温度图保留固定基线，并设置最小显示温差，避免 1℃ 波动被夸大成“贴顶/贴底”。
+    var minBarHeight = 10;
+    var barHeightRange = 10;
+    var tempRange = max - min;
+    var displayRange = Math.max(tempRange, 6);
 
     return hstack(hourly.map(function (h) {
-        var ratio = max === min ? 0.5 : (h.temp - min) / (max - min);
-        var barHeight = 4 + ratio * 16;
+        var ratio = displayRange === 0 ? 0.5 : (h.temp - min) / displayRange;
+        var barHeight = minBarHeight + clamp(ratio, 0, 1) * barHeightRange;
         var emptyHeight = 20 - barHeight;
         return vstack([
             txt(formatHour(h.time), 8, "medium", textSubtle),
@@ -810,6 +843,68 @@ function calcClothingAdvice(now, nextHour) {
         detail: detail,
         color: color,
         bg: bg
+    };
+}
+
+function calcRainAlert(now, hourly) {
+    var nowTime = parseObsDate(now, "");
+    var deadline = nowTime.getTime() + RAIN_ALERT_WINDOW_HOURS * 3600000;
+    var currentPrecip = toFloat(now && now.precip);
+    var candidates = [];
+
+    if (isFinite(currentPrecip) && currentPrecip >= RAIN_ALERT_PRECIP_THRESHOLD) {
+        return {
+            active: true,
+            short: "正在下雨",
+            detail: "当前有降雨，通勤建议带伞",
+            color: "#38BDF8",
+            bg: "rgba(56,189,248,0.18)"
+        };
+    }
+
+    if (Array.isArray(hourly)) {
+        for (var i = 0; i < hourly.length; i++) {
+            var hour = hourly[i];
+            var time = new Date(hour.time);
+            if (isNaN(time.getTime())) continue;
+            var ts = time.getTime();
+            if (ts < nowTime.getTime() || ts > deadline) continue;
+
+            var pop = toFloat(hour.pop);
+            var precip = toFloat(hour.precip);
+            // 同时参考降雨量和降雨概率，优先提醒“马上会影响通勤”的近时段降雨。
+            if ((isFinite(precip) && precip >= RAIN_ALERT_PRECIP_THRESHOLD) || (isFinite(pop) && pop >= RAIN_ALERT_POP_THRESHOLD)) {
+                candidates.push({
+                    time: time,
+                    pop: pop,
+                    precip: precip
+                });
+            }
+        }
+    }
+
+    if (candidates.length === 0) {
+        return {
+            active: false,
+            short: "",
+            detail: "",
+            color: "#38BDF8",
+            bg: "rgba(56,189,248,0.18)"
+        };
+    }
+
+    var nextRain = candidates[0];
+    var leadMinutes = Math.max(0, Math.round((nextRain.time.getTime() - nowTime.getTime()) / 60000));
+    var short = leadMinutes <= 30 ? "半小时内有雨" : "2小时内有雨";
+    var detail = short + "，约 " + formatClock(nextRain.time.toISOString()) + " 开始";
+    if (isFinite(nextRain.pop)) detail += "，降雨概率 " + Math.round(nextRain.pop) + "%";
+
+    return {
+        active: true,
+        short: short,
+        detail: detail,
+        color: "#38BDF8",
+        bg: "rgba(56,189,248,0.18)"
     };
 }
 
