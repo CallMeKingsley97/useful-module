@@ -626,6 +626,7 @@ function hourlyStrip(hourly, accent, theme) {
     var textSubtle = theme ? theme.textSubtle : "rgba(255,255,255,0.5)";
 
     var itemCount = hourly.length;
+    var compactTimeLabel = itemCount > 6;
     var itemWidth = itemCount > 6 ? 24 : (itemCount > 4 ? 28 : 30);
     var itemGap = itemCount > 6 ? 4 : 6;
     var stripHeight = 48;
@@ -640,7 +641,7 @@ function hourlyStrip(hourly, accent, theme) {
         var barHeight = minBarHeight + clamp(ratio, 0, 1) * barHeightRange;
         var emptyHeight = 20 - barHeight;
         return vstack([
-            txt(formatHour(h.time), 8, "medium", textSubtle),
+            txt(formatHour(h.time, compactTimeLabel), 8, "medium", textSubtle),
             sp(emptyHeight + 2),
             { type: "stack", width: 5, height: barHeight, borderRadius: 2.5, backgroundColor: barBg, children: [] },
             sp(2),
@@ -1044,10 +1045,11 @@ function formatClock(iso) {
     return pad2(d.getHours()) + ":" + pad2(d.getMinutes());
 }
 
-function formatHour(iso) {
+function formatHour(iso, compact) {
     if (!iso) return "--";
     var d = new Date(iso);
     if (isNaN(d.getTime())) return "--";
+    if (compact) return pad2(d.getHours()) + "时";
     return pad2(d.getHours()) + ":00";
 }
 
