@@ -423,6 +423,7 @@ function buildMedium(view, title, accent, status, nextRefresh) {
     var hourly = view.hourly.slice(0, 6);
     var rainAlert = view.rainAlert;
     var theme = view.theme;
+    
     var summaryTags = [
         tag("舒适度 " + view.comfort.score, view.comfort.color, view.comfort.bg, 9),
         sp(4),
@@ -431,37 +432,45 @@ function buildMedium(view, title, accent, status, nextRefresh) {
         tag(view.advice.short, view.advice.color, view.advice.bg, 9)
     ];
 
+    var bottomRow;
+    if (rainAlert && rainAlert.active) {
+        bottomRow = noticeCard("降雨", rainAlert.short, rainAlert.color, theme, "cloud.rain", { padding: [4, 8, 4, 8] });
+    } else {
+        bottomRow = hstack([
+            metricInline("体感", formatTemp(now.feelsLike)),
+            sp(8),
+            metricInline("风速", formatWind(now.windSpeed)),
+            sp(8),
+            metricInline("湿度", formatPercent(now.humidity))
+        ], { gap: 0 });
+    }
+
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
-        sp(6),
+        sp(10),
         hstack([
             vstack([
-                txt(now.text, 16, "bold", theme.textMuted, { maxLines: 1, minScale: 0.7 }),
-                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " | 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 }),
+                hstack([
+                    txt(now.text, 14, "bold", theme.textMuted, { maxLines: 1, minScale: 0.8 }),
+                    sp(6),
+                    txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " | 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.8 })
+                ], { alignItems: "center", gap: 0 }),
                 sp(6),
                 hstack(summaryTags, { gap: 0 }),
                 sp(6),
-                hstack([
-                    metricInline("体感", formatTemp(now.feelsLike)),
-                    sp(10),
-                    metricInline("风速", formatWind(now.windSpeed)),
-                    sp(10),
-                    metricInline("湿度", formatPercent(now.humidity))
-                ], { gap: 0 })
+                bottomRow
             ], { flex: 1, gap: 0, alignItems: "start" }),
-            sp(8),
+            sp(4),
             vstack([
-                icon(view.iconName, 22, accent),
-                txt(formatTemp(now.temp), 34, "bold", "#FFFFFF", { minScale: 0.6, maxLines: 1 })
-            ], { gap: 4, alignItems: "end", width: 64 })
+                icon(view.iconName, 26, accent),
+                txt(formatTemp(now.temp), 36, "bold", "#FFFFFF", { minScale: 0.5, maxLines: 1 })
+            ], { gap: 2, alignItems: "center", width: 62 })
         ], { alignItems: "center" }),
-        sp(6),
-        noticeCard("降雨提醒", rainAlert.short, rainAlert.color, theme, "cloud.rain", { padding: [6, 10, 6, 10] }),
-        sp(4),
+        sp(10),
         hourlyStrip(hourly, accent, theme, { compact: true }),
-        sp(2),
+        sp(),
         footer(status, theme)
-    ], nextRefresh, [10, 14, 8, 14], theme);
+    ], nextRefresh, [12, 14, 10, 14], theme);
 }
 
 function buildLarge(view, title, accent, status, nextRefresh) {
