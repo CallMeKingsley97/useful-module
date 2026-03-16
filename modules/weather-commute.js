@@ -428,42 +428,30 @@ function buildMedium(view, title, accent, status, nextRefresh) {
         sp(4),
         tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg, 9),
         sp(4),
-        tag("穿衣 " + view.advice.short, view.advice.color, view.advice.bg, 9)
+        tag(view.advice.short, view.advice.color, view.advice.bg, 9)
     ];
+    var metricsText = "体感 " + formatTemp(now.feelsLike) + " / " + formatWind(now.windSpeed).replace(" ", "") + " / " + formatPercent(now.humidity);
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
-        sp(),
+        sp(8),
         hstack([
             vstack([
-                hstack([
-                    txt(now.text, 16, "bold", theme.textMuted, { maxLines: 1, minScale: 0.7 }),
-                    sp(8),
-                    txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " | 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 })
-                ], { alignItems: "end", gap: 0 }),
-                sp(8),
-                hstack(summaryTags, { gap: 0 }),
-                sp(8),
-                hstack([
-                    metricInline("体感", formatTemp(now.feelsLike)),
-                    sp(10),
-                    metricInline("风速", formatWind(now.windSpeed)),
-                    sp(10),
-                    metricInline("湿度", formatPercent(now.humidity))
-                ], { gap: 0 })
-            ], { flex: 1, gap: 0 }),
+                txt(now.text, 17, "bold", theme.textMuted, { maxLines: 1, minScale: 0.7 }),
+                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " | 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 })
+            ], { flex: 1, gap: 4, alignItems: "start" }),
+            sp(10),
             vstack([
-                icon(view.iconName, 28, accent),
-                txt(formatTemp(now.temp), 42, "bold", "#FFFFFF", { minScale: 0.5, maxLines: 1 })
-            ], { gap: 2, alignItems: "center" })
-        ], { alignItems: "center" }),
-        sp(),
-        hstack([
-            txt("降雨提醒", 10, "medium", theme.textSubtle),
-            sp(8),
-            txt(rainAlert.short, 11, "semibold", "#FFFFFF", { minScale: 0.7, maxLines: 1 }),
-            sp()
-        ], { padding: [7, 10, 7, 10], backgroundColor: rainAlert.bg, borderRadius: 8, alignItems: "center" }),
+                icon(view.iconName, 24, accent),
+                txt(formatTemp(now.temp), 38, "bold", "#FFFFFF", { minScale: 0.6, maxLines: 1 })
+            ], { gap: 4, alignItems: "end", width: 72 })
+        ], { alignItems: "start" }),
+        sp(8),
+        hstack(summaryTags, { gap: 0 }),
+        sp(8),
+        noticeCard("概览", metricsText, theme.textMuted, theme, "figure.walk"),
+        sp(8),
+        noticeCard("降雨提醒", rainAlert.short, rainAlert.color, theme, "cloud.rain"),
         sp(8),
         hourlyStrip(hourly, accent, theme),
         sp(4),
@@ -474,14 +462,14 @@ function buildMedium(view, title, accent, status, nextRefresh) {
 function buildLarge(view, title, accent, status, nextRefresh) {
     var now = view.now;
     var today = view.today;
-    var hourly = view.hourly.slice(0, 8);
+    var hourly = view.hourly.slice(0, 7);
     var daily = view.daily.slice(0, 4);
     var rainAlert = view.rainAlert;
     var theme = view.theme;
 
     return shell([
         header(view.location, now, view.iconName, accent, title, false),
-        sp(),
+        sp(8),
         hstack([
             vstack([
                 txt(now.text, 16, "bold", theme.textMuted, { maxLines: 1, minScale: 0.7 }),
@@ -493,35 +481,26 @@ function buildLarge(view, title, accent, status, nextRefresh) {
                     tag(view.yesterdayDiff.text, view.yesterdayDiff.color, view.yesterdayDiff.bg, 9)
                 ], { gap: 0 })
             ], { flex: 1, gap: 4, alignItems: "start" }),
+            sp(12),
             vstack([
-                icon(view.iconName, 32, accent),
-                txt(formatTemp(now.temp), 46, "bold", "#FFFFFF", { minScale: 0.5, maxLines: 1 })
-            ], { alignItems: "center", gap: 0 })
-        ], { alignItems: "center" }),
-        sp(),
+                icon(view.iconName, 30, accent),
+                txt(formatTemp(now.temp), 42, "bold", "#FFFFFF", { minScale: 0.5, maxLines: 1 })
+            ], { alignItems: "end", gap: 2, width: 86 })
+        ], { alignItems: "start" }),
+        sp(8),
         hstack([
             metricBlock("舒适度", view.comfort.score + "分", theme),
             metricBlock("较昨日", view.yesterdayDiff.text.replace("较昨 ", ""), theme),
             metricBlock("体感", formatTemp(now.feelsLike), theme),
             metricBlock("能见", formatVis(now.vis), theme)
         ], { gap: 6 }),
-        sp(8),
-        hstack([
-            txt("穿衣建议", 10, "medium", theme.textSubtle),
-            sp(8),
-            txt(view.advice.detail, 11, "semibold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }),
-            sp()
-        ], { padding: [8, 12, 8, 12], backgroundColor: theme.cardStrong, borderRadius: 8, alignItems: "center" }),
-        sp(8),
-        hstack([
-            txt("降雨提醒", 10, "medium", theme.textSubtle),
-            sp(8),
-            txt(rainAlert.detail, 11, "semibold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }),
-            sp()
-        ], { padding: [8, 12, 8, 12], backgroundColor: rainAlert.bg, borderRadius: 8, alignItems: "center" }),
-        sp(8),
+        sp(6),
+        noticeCard("穿衣建议", view.advice.detail, view.advice.color, theme, "thermometer.medium"),
+        sp(6),
+        noticeCard("降雨提醒", rainAlert.detail, rainAlert.color, theme, "cloud.rain"),
+        sp(6),
         hourlyStrip(hourly, accent, theme),
-        sp(8),
+        sp(6),
         hstack(daily.map(function (d) { return dailyCardLarge(d, accent, theme); }), { gap: 6 }),
         sp(4),
         footer(status, theme)
@@ -629,17 +608,18 @@ function hourlyStrip(hourly, accent, theme) {
     var compactTimeLabel = itemCount > 6;
     var itemWidth = itemCount > 6 ? 24 : (itemCount > 4 ? 28 : 30);
     var itemGap = itemCount > 6 ? 4 : 6;
-    var stripHeight = 48;
+    var stripHeight = compactTimeLabel ? 42 : 46;
+    var barAreaHeight = compactTimeLabel ? 16 : 20;
     // 给小时温度图保留固定基线，并设置最小显示温差，避免 1℃ 波动被夸大成“贴顶/贴底”。
-    var minBarHeight = 10;
-    var barHeightRange = 10;
+    var minBarHeight = compactTimeLabel ? 8 : 10;
+    var barHeightRange = compactTimeLabel ? 8 : 10;
     var tempRange = max - min;
     var displayRange = Math.max(tempRange, 6);
 
     return hstack(hourly.map(function (h) {
         var ratio = displayRange === 0 ? 0.5 : (h.temp - min) / displayRange;
         var barHeight = minBarHeight + clamp(ratio, 0, 1) * barHeightRange;
-        var emptyHeight = 20 - barHeight;
+        var emptyHeight = Math.max(0, barAreaHeight - barHeight);
         return vstack([
             txt(formatHour(h.time, compactTimeLabel), 8, "medium", textSubtle),
             sp(emptyHeight + 2),
@@ -664,16 +644,16 @@ function dailyCard(d, accent, theme) {
 }
 
 function dailyCardLarge(d, accent, theme) {
-    // 大尺寸预报卡片，更大的图标和文字
+    // 大尺寸预报卡片在有限高度内压缩留白，避免与底部状态栏冲突。
     return vstack([
-        txt(formatWeekday(d.date), 10, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.6)"),
-        icon(iconForWeather(d.iconDay, false), 18, accent),
-        txt(formatTemp(d.tempMax) + "/" + formatTemp(d.tempMin), 10, "semibold", "#FFFFFFCC")
+        txt(formatWeekday(d.date), 9, "medium", theme ? theme.textSubtle : "rgba(255,255,255,0.6)"),
+        icon(iconForWeather(d.iconDay, false), 16, accent),
+        txt(formatTemp(d.tempMax) + "/" + formatTemp(d.tempMin), 9, "semibold", "#FFFFFFCC")
     ], {
-        gap: 4,
-        padding: [8, 12, 8, 12],
+        gap: 3,
+        padding: [6, 10, 6, 10],
         backgroundColor: theme ? theme.card : "rgba(255,255,255,0.06)",
-        borderRadius: 10,
+        borderRadius: 9,
         flex: 1
     });
 }
@@ -684,7 +664,7 @@ function metricBlock(label, value, theme) {
         txt(value, 11, "bold", "#FFFFFF", { minScale: 0.7, maxLines: 1 })
     ], {
         gap: 2,
-        padding: [6, 8, 6, 8],
+        padding: [5, 8, 5, 8],
         backgroundColor: theme ? theme.card : "rgba(255,255,255,0.06)",
         borderRadius: 8,
         flex: 1
@@ -852,6 +832,26 @@ function calcClothingAdvice(now, nextHour) {
         color: color,
         bg: bg
     };
+}
+
+function noticeCard(label, value, color, theme, iconName) {
+    var muted = theme ? theme.textSubtle : "rgba(255,255,255,0.55)";
+    var bg = theme ? theme.cardStrong : "rgba(255,255,255,0.1)";
+    var headerChildren = [];
+    if (iconName) headerChildren.push(icon(iconName, 10, color || muted));
+    headerChildren.push(txt(label, 10, "medium", color || muted));
+    return hstack([
+        hstack(headerChildren, { gap: 4 }),
+        sp(8),
+        txt(value, 11, "semibold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }),
+        sp()
+    ], {
+        gap: 0,
+        padding: [8, 12, 8, 12],
+        backgroundColor: bg,
+        borderRadius: 10,
+        alignItems: "center"
+    });
 }
 
 function calcRainAlert(now, hourly) {
