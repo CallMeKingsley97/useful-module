@@ -415,9 +415,9 @@ function buildMedium(view, title, accent, status, nextRefresh) {
         hstack([
             vstack([
                 hstack([
-                    txt(now.text, 16, "bold", theme.textMuted),
+                    txt(now.text, 16, "bold", theme.textMuted, { maxLines: 1, minScale: 0.7 }),
                     sp(8),
-                    txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " | 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle)
+                    txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " | 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 })
                 ], { alignItems: "end", gap: 0 }),
                 sp(8),
                 hstack([
@@ -436,7 +436,7 @@ function buildMedium(view, title, accent, status, nextRefresh) {
             ], { flex: 1, gap: 0 }),
             vstack([
                 icon(view.iconName, 28, accent),
-                txt(formatTemp(now.temp), 42, "bold", "#FFFFFF", { minScale: 0.6 })
+                txt(formatTemp(now.temp), 42, "bold", "#FFFFFF", { minScale: 0.5, maxLines: 1 })
             ], { gap: 2, alignItems: "center" })
         ], { alignItems: "center" }),
         sp(),
@@ -458,12 +458,12 @@ function buildLarge(view, title, accent, status, nextRefresh) {
         sp(),
         hstack([
             vstack([
-                txt(now.text, 16, "bold", theme.textMuted),
-                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle)
+                txt(now.text, 16, "bold", theme.textMuted, { maxLines: 1, minScale: 0.7 }),
+                txt("最高 " + formatTemp(today ? today.tempMax : NaN) + " / 最低 " + formatTemp(today ? today.tempMin : NaN), 11, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 })
             ], { flex: 1, gap: 4 }),
             vstack([
                 icon(view.iconName, 32, accent),
-                txt(formatTemp(now.temp), 46, "bold", "#FFFFFF", { minScale: 0.6 })
+                txt(formatTemp(now.temp), 46, "bold", "#FFFFFF", { minScale: 0.5, maxLines: 1 })
             ], { alignItems: "center", gap: 0 })
         ], { alignItems: "center" }),
         sp(),
@@ -477,7 +477,7 @@ function buildLarge(view, title, accent, status, nextRefresh) {
         hstack([
             txt("穿衣建议", 10, "medium", theme.textSubtle),
             sp(8),
-            txt(view.advice.detail, 11, "semibold", "#FFFFFF", { minScale: 0.8 }),
+            txt(view.advice.detail, 11, "semibold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }),
             sp()
         ], { padding: [8, 12, 8, 12], backgroundColor: theme.cardStrong, borderRadius: 8, alignItems: "center" }),
         sp(8),
