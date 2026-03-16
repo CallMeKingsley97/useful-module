@@ -430,10 +430,15 @@ function buildMedium(view, title, accent, status, nextRefresh) {
         sp(4),
         tag(view.advice.short, view.advice.color, view.advice.bg, 9)
     ];
-    var metricsText = "体感 " + formatTemp(now.feelsLike) + " / " + formatWind(now.windSpeed).replace(" ", "") + " / " + formatPercent(now.humidity);
+    var metricsText = "体感 " + formatTemp(now.feelsLike) + " / 风速 " + formatWind(now.windSpeed) + " / 湿度 " + formatPercent(now.humidity);
 
     return shell([
-        header(view.location, now, view.iconName, accent, title, false),
+        hstack([
+            icon("location.fill", 10, accent),
+            txt(view.location, 12, "bold", "#FFFFFF", { maxLines: 1, minScale: 0.7 }),
+            sp(),
+            txt(formatClock(now.obsTime), 10, "medium", theme.textSubtle)
+        ], { gap: 6 }),
         sp(8),
         hstack([
             vstack([
@@ -448,13 +453,13 @@ function buildMedium(view, title, accent, status, nextRefresh) {
         ], { alignItems: "start" }),
         sp(8),
         hstack(summaryTags, { gap: 0 }),
-        sp(8),
-        noticeCard("概览", metricsText, theme.textMuted, theme, "figure.walk"),
-        sp(8),
-        noticeCard("降雨提醒", rainAlert.short, rainAlert.color, theme, "cloud.rain"),
-        sp(8),
-        hourlyStrip(hourly, accent, theme),
-        sp(4),
+        sp(6),
+        noticeCard("概览", metricsText, theme.textMuted, theme, "figure.walk", { padding: [6, 10, 6, 10] }),
+        sp(6),
+        noticeCard("降雨提醒", rainAlert.short, rainAlert.color, theme, "cloud.rain", { padding: [6, 10, 6, 10] }),
+        sp(6),
+        hourlyStrip(hourly, accent, theme, { compact: true }),
+        sp(2),
         footer(status, theme)
     ], nextRefresh, [12, 14, 10, 14], theme);
 }
@@ -596,8 +601,9 @@ function comfortTag(comfort) {
     return tag("舒适度 " + comfort.level + " " + comfort.score + "分", comfort.color, comfort.bg);
 }
 
-function hourlyStrip(hourly, accent, theme) {
+function hourlyStrip(hourly, accent, theme, opts) {
     if (!hourly || hourly.length === 0) return sp();
+    opts = opts || {};
     var temps = hourly.map(function (h) { return h.temp; });
     var min = minOf(temps);
     var max = maxOf(temps);
@@ -605,9 +611,10 @@ function hourlyStrip(hourly, accent, theme) {
     var textSubtle = theme ? theme.textSubtle : "rgba(255,255,255,0.5)";
 
     var itemCount = hourly.length;
-    var compactTimeLabel = itemCount > 6;
-    var itemWidth = itemCount > 6 ? 24 : (itemCount > 4 ? 28 : 30);
-    var itemGap = itemCount > 6 ? 4 : 6;
+    var forceCompact = !!opts.compact;
+    var compactTimeLabel = forceCompact || itemCount > 6;
+    var itemWidth = forceCompact ? 26 : (itemCount > 6 ? 24 : (itemCount > 4 ? 28 : 30));
+    var itemGap = itemCount > 6 || forceCompact ? 4 : 6;
     var stripHeight = compactTimeLabel ? 42 : 46;
     var barAreaHeight = compactTimeLabel ? 16 : 20;
     // 给小时温度图保留固定基线，并设置最小显示温差，避免 1℃ 波动被夸大成“贴顶/贴底”。
@@ -621,11 +628,11 @@ function hourlyStrip(hourly, accent, theme) {
         var barHeight = minBarHeight + clamp(ratio, 0, 1) * barHeightRange;
         var emptyHeight = Math.max(0, barAreaHeight - barHeight);
         return vstack([
-            txt(formatHour(h.time, compactTimeLabel), 8, "medium", textSubtle),
+            txt(formatHour(h.time, compactTimeLabel), forceCompact ? 7 : 8, "medium", textSubtle),
             sp(emptyHeight + 2),
             { type: "stack", width: 5, height: barHeight, borderRadius: 2.5, backgroundColor: barBg, children: [] },
             sp(2),
-            txt(formatTemp(h.temp), 9, "semibold", "#FFFFFFCC", { minScale: 0.6 })
+            txt(formatTemp(h.temp), forceCompact ? 8 : 9, "semibold", "#FFFFFFCC", { minScale: 0.6 })
         ], { gap: 0, alignItems: "center", width: itemWidth });
     }), { gap: itemGap, alignItems: "center", height: stripHeight });
 }
@@ -834,7 +841,8 @@ function calcClothingAdvice(now, nextHour) {
     };
 }
 
-function noticeCard(label, value, color, theme, iconName) {
+function noticeCard(label, value, color, theme, iconName, opts) {
+    opts = opts || {};
     var muted = theme ? theme.textSubtle : "rgba(255,255,255,0.55)";
     var bg = theme ? theme.cardStrong : "rgba(255,255,255,0.1)";
     var headerChildren = [];
@@ -847,7 +855,7 @@ function noticeCard(label, value, color, theme, iconName) {
         sp()
     ], {
         gap: 0,
-        padding: [8, 12, 8, 12],
+        padding: opts.padding || [8, 12, 8, 12],
         backgroundColor: bg,
         borderRadius: 10,
         alignItems: "center"
