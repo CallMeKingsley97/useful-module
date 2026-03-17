@@ -481,6 +481,62 @@ function errorWidget(title, msg) {
     };
 }
 
+function txt(text, size, weight, color, opts) {
+    var el = {
+        type: "text",
+        text: String(text),
+        font: { size: size || "body", weight: weight || "regular" }
+    };
+    if (color) el.textColor = color;
+    if (opts) {
+        for (var k in opts) el[k] = opts[k];
+    }
+    return el;
+}
+
+function icon(name, size, color) {
+    var el = {
+        type: "image",
+        src: "sf-symbol:" + name,
+        width: size,
+        height: size
+    };
+    if (color) el.color = color;
+    return el;
+}
+
+function hstack(children, opts) {
+    var el = {
+        type: "stack",
+        direction: "row",
+        alignItems: "center",
+        children: children
+    };
+    if (opts) {
+        for (var k in opts) el[k] = opts[k];
+    }
+    return el;
+}
+
+function vstack(children, opts) {
+    var el = {
+        type: "stack",
+        direction: "column",
+        alignItems: "start",
+        children: children
+    };
+    if (opts) {
+        for (var k in opts) el[k] = opts[k];
+    }
+    return el;
+}
+
+function sp(len) {
+    var el = { type: "spacer" };
+    if (len != null) el.length = len;
+    return el;
+}
+
 function styleLabel(styles) {
     if (!Array.isArray(styles) || styles.length === 0) return "馆藏匹配";
     var map = { impressionism: "印象派", light: "明亮", day: "日景", night: "夜景", city: "城市", rain: "雨景", mist: "雾景", storm: "风暴", quiet: "静场", snow: "雪景", winter: "冬景", realism: "现实主义", dramatic: "戏剧感", sea: "海景" };
