@@ -26,7 +26,7 @@ scriptings:
 #   偏好风格，例如 impressionism / night / storm / snow
 #
 # SHOW_IMAGE (可选，默认 false)
-#   是否尝试展示作品缩略图
+#   当前仅保留兼容；为避免远程图片 400 导致组件报错，现阶段不会直接渲染外部作品图
 #
 # ENHANCE_ART (可选，默认 true)
 #   是否调用 Met API 补充馆藏图片与链接

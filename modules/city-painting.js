@@ -142,7 +142,7 @@ async function fetchWidgetData(ctx, opts, cached) {
 
     var artwork = canReuseArtwork
         ? cached.artwork
-        : await resolveArtwork(ctx, mood.tag, opts.preferredStyle, artKey, opts.showImage || opts.enhanceArt);
+        : await resolveArtwork(ctx, mood.tag, opts.preferredStyle, artKey, opts.enhanceArt);
 
     return {
         inputKey: opts.inputKey,
@@ -511,20 +511,6 @@ function header(view, showTime) {
 }
 
 function artworkPane(view, width, height) {
-    if (view.artwork.image) {
-        return vstack([
-            {
-                type: "image",
-                src: view.artwork.image,
-                width: width,
-                height: height,
-                cornerRadius: 12
-            },
-            sp(4),
-            txt(view.artwork.title, 9, "semibold", "#FFFFFFCC", { maxLines: 2, minScale: 0.6, width: width })
-        ], { gap: 0, width: width, alignItems: "center" });
-    }
-
     return {
         type: "stack",
         width: width,
