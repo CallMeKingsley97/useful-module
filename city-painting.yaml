@@ -1,0 +1,55 @@
+name: "City Painting"
+description: "根据 Open-Meteo 实时天气，把你所在城市翻译成一幅最像它的画；支持本地作品池兜底与 Met 馆藏详情增强"
+author: "kingsley"
+scriptings:
+# ┌────────────────────────────────────────────────────────────┐
+# │             你的城市像哪幅画 配置说明                      │
+# └────────────────────────────────────────────────────────────┘
+# 环境变量 (env):
+#
+# TITLE (可选，默认 "你的城市像哪幅画")
+#   小组件标题
+#
+# CITY (可选)
+#   城市名；与 LAT/LON 二选一，若未提供坐标则通过城市名解析
+#
+# LOCATION_NAME (可选)
+#   自定义展示名称；提供 LAT/LON 时推荐填写
+#
+# LAT/LON (可选)
+#   城市或当前位置经纬度；若提供则跳过城市解析
+#
+# ACCENT_COLOR (可选)
+#   自定义强调色；不填则按气质标签自动切换
+#
+# PREFERRED_STYLE (可选)
+#   偏好风格，例如 impressionism / night / storm / snow
+#
+# SHOW_IMAGE (可选，默认 false)
+#   是否尝试展示作品缩略图
+#
+# ENHANCE_ART (可选，默认 true)
+#   是否调用 Met API 补充馆藏图片与链接
+#
+# RANDOMNESS (可选，默认 false)
+#   设为 true 时允许同一天内按小时切换同标签作品
+#
+# REFRESH_MINUTES (可选，默认 30)
+#   天气刷新间隔（分钟）
+#
+# ART_REFRESH_HOURS (可选，默认 12)
+#   作品刷新间隔（小时）
+#
+# FORCE_REFRESH (可选，默认 false)
+#   设为 true 时忽略缓存强制拉取最新数据
+#
+# OPEN_URL (可选)
+#   点击组件跳转链接；若不填则优先使用 Met 馆藏链接
+- generic:
+    name: city-painting
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/city-painting.js
+    timeout: 30
+
+widgets:
+- name: 你的城市像哪幅画
+  script_name: city-painting
