@@ -1,13 +1,9 @@
 // 城市像哪幅画小组件
-// 特性：Open-Meteo 城市解析 + 实时天气 + 城市气质标签 + 本地作品池 + Met 详情增强 + 多尺寸布局 + 缓存兜底
+// 特性：和风天气实时天气 + 城市气质标签 + 本地作品池 + Met 详情增强 + 多尺寸布局 + 缓存兜底
 
-var CACHE_KEY = "city_painting_cache_v1";
+var CACHE_KEY = "city_painting_cache_v2";
 var DEFAULT_REFRESH_MINUTES = 30;
 var DEFAULT_ART_REFRESH_HOURS = 12;
-var OPEN_METEO_GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search";
-var OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
-var MET_SEARCH_URL = "https://collectionapi.metmuseum.org/public/collection/v1/search";
-var MET_OBJECT_URL = "https://collectionapi.metmuseum.org/public/collection/v1/objects/";
 var MAX_MET_OBJECT_CANDIDATES = 6;
 
 var MOOD_META = {
@@ -46,15 +42,16 @@ var ARTWORK_POOL = [
 export default async function (ctx) {
     var env = ctx.env || {};
     var family = ctx.widgetFamily || "systemMedium";
-
     var title = env.TITLE || "你的城市像哪幅画";
+    var host = normalizeHost(env.HOST || "");
+    var apiKey = String(env.API_KEY || "").trim();
+    var locationNameInput = String(env.LOCATION_NAME || "").trim();
     var city = String(env.CITY || "").trim();
-    var locationName = String(env.LOCATION_NAME || "").trim();
+    var locationInput = String(env.LOCATION || "").trim();
     var lat = parseFloat(env.LAT);
     var lon = parseFloat(env.LON);
     var accentInput = String(env.ACCENT_COLOR || "").trim();
     var preferredStyle = String(env.PREFERRED_STYLE || "").trim().toLowerCase();
-    var showImage = isTrue(env.SHOW_IMAGE);
     var enhanceArt = env.ENHANCE_ART == null ? true : isTrue(env.ENHANCE_ART);
     var randomness = isTrue(env.RANDOMNESS);
     var openUrl = String(env.OPEN_URL || "").trim();
@@ -64,27 +61,19 @@ export default async function (ctx) {
     var artRefreshMs = artRefreshHours * 60 * 60 * 1000;
     var forceRefresh = isTrue(env.FORCE_REFRESH);
 
-    if (!city && (!isFinite(lat) || !isFinite(lon))) {
-        return errorWidget("缺少配置", "请设置 CITY 或 LAT/LON");
-    }
-    if ((isFinite(lat) && !isValidLatitude(lat)) || (isFinite(lon) && !isValidLongitude(lon))) {
-        return errorWidget("坐标无效", "LAT 需在 -90 到 90，LON 需在 -180 到 180");
-    }
+    if (!host) return errorWidget("缺少配置", "请设置 HOST（和风天气）");
+    if (!apiKey) return errorWidget("缺少配置", "请设置 API_KEY（和风天气）");
+    if (!locationInput && !(isFinite(lat) && isFinite(lon)) && !city) return errorWidget("缺少位置", "请设置 LOCATION、LAT/LON 或 CITY");
+    if ((isFinite(lat) && !isValidLatitude(lat)) || (isFinite(lon) && !isValidLongitude(lon))) return errorWidget("坐标无效", "LAT 需在 -90 到 90，LON 需在 -180 到 180");
 
-    var inputKey = buildInputKey({
-        city: city,
-        lat: lat,
-        lon: lon,
-        style: preferredStyle,
-        showImage: showImage
-    });
-
+    var locationConfig = resolveLocationConfig(locationInput, lat, lon, city);
+    var inputKey = [host, locationConfig.cacheKey, locationNameInput, preferredStyle, enhanceArt ? "enhance" : "plain"].join("|");
     var cached = loadCache(ctx);
-    var data = null;
     var now = Date.now();
     var cacheReady = cached && cached.inputKey === inputKey && cached.location && cached.weather && cached.mood && cached.artwork;
     var cacheFresh = cacheReady && cached.ts && (now - cached.ts < refreshIntervalMs);
     var useCacheOnly = cacheFresh && !forceRefresh;
+    var data = null;
     var fetched = false;
 
     if (useCacheOnly) {
@@ -92,26 +81,22 @@ export default async function (ctx) {
     } else {
         try {
             data = await fetchWidgetData(ctx, {
-                city: city,
-                locationName: locationName,
-                lat: lat,
-                lon: lon,
+                host: host,
+                apiKey: apiKey,
+                locationConfig: locationConfig,
+                locationNameInput: locationNameInput,
                 preferredStyle: preferredStyle,
-                showImage: showImage,
-                enhanceArt: enhanceArt,
                 randomness: randomness,
                 artRefreshMs: artRefreshMs,
-                inputKey: inputKey
+                inputKey: inputKey,
+                enhanceArt: enhanceArt
             }, cached);
             saveCache(ctx, data);
             fetched = true;
         } catch (e) {
             console.log("city painting fetch error: " + safeMsg(e));
-            if (cacheReady) {
-                data = cached;
-            } else {
-                return errorWidget("获取失败", safeMsg(e));
-            }
+            if (cacheReady) data = cached;
+            else return errorWidget("获取失败", safeMsg(e));
         }
     }
 
@@ -127,25 +112,21 @@ export default async function (ctx) {
     return buildMedium(view, status, nextRefresh);
 }
 
-// ============== 数据层 ==============
-
 async function fetchWidgetData(ctx, opts, cached) {
-    var location = await resolveLocation(ctx, opts);
-    var weather = await fetchCurrentWeather(ctx, location);
+    var locationInfo = await fetchLocationInfo(ctx, opts.host, opts.apiKey, opts.locationConfig);
+    var weatherLocation = resolveWeatherLocation(opts.locationConfig, locationInfo);
+    var weatherBody = await fetchNow(ctx, opts.host, opts.apiKey, weatherLocation);
+    var weather = normalizeNow(weatherBody);
+    var location = {
+        id: locationInfo && locationInfo.id ? locationInfo.id : "",
+        name: resolveLocationName(opts.locationNameInput, locationInfo, opts.locationConfig.displayFallback),
+        rawLocation: weatherLocation
+    };
     var mood = deriveMoodTag(weather);
     var artKey = buildArtKey(location.name, mood.tag, opts.preferredStyle, opts.randomness);
     var now = Date.now();
-
-    var canReuseArtwork = cached
-        && cached.inputKey === opts.inputKey
-        && cached.artKey === artKey
-        && cached.artTs
-        && (now - cached.artTs < opts.artRefreshMs)
-        && cached.artwork;
-
-    var artwork = canReuseArtwork
-        ? cached.artwork
-        : await resolveArtwork(ctx, mood.tag, opts.preferredStyle, artKey, opts.enhanceArt);
+    var canReuseArtwork = cached && cached.inputKey === opts.inputKey && cached.artKey === artKey && cached.artTs && (now - cached.artTs < opts.artRefreshMs) && cached.artwork;
+    var artwork = canReuseArtwork ? cached.artwork : await resolveArtwork(ctx, mood.tag, opts.preferredStyle, artKey, opts.enhanceArt);
 
     return {
         inputKey: opts.inputKey,
@@ -159,115 +140,68 @@ async function fetchWidgetData(ctx, opts, cached) {
     };
 }
 
-async function resolveLocation(ctx, opts) {
-    if (isFinite(opts.lat) && isFinite(opts.lon)) {
-        return {
-            name: opts.locationName || opts.city || "当前城市",
-            latitude: opts.lat,
-            longitude: opts.lon,
-            timezone: "",
-            country: "",
-            admin1: ""
-        };
-    }
+async function fetchLocationInfo(ctx, host, apiKey, locationConfig) {
+    if (!locationConfig || !locationConfig.lookupQueries || locationConfig.lookupQueries.length === 0 || locationConfig.source === "locationId") return null;
 
-    var url = OPEN_METEO_GEOCODE_URL
-        + "?name=" + encodeURIComponent(opts.city)
-        + "&count=1&language=zh&format=json";
-
-    var body = await fetchJson(ctx, url);
-    var results = body && Array.isArray(body.results) ? body.results : [];
-    if (results.length === 0) throw new Error("未找到可用城市");
-
-    var item = results[0];
-    return {
-        name: opts.locationName || formatGeoName(item),
-        latitude: toFloat(item.latitude),
-        longitude: toFloat(item.longitude),
-        timezone: item.timezone || "",
-        country: item.country || "",
-        admin1: item.admin1 || ""
-    };
-}
-
-async function fetchCurrentWeather(ctx, location) {
-    var baseUrl = OPEN_METEO_FORECAST_URL
-        + "?latitude=" + encodeURIComponent(location.latitude)
-        + "&longitude=" + encodeURIComponent(location.longitude)
-        + "&timezone=auto";
-
-    try {
-        var currentUrl = baseUrl
-            + "&current=temperature_2m,is_day,weather_code,cloud_cover,wind_speed_10m,precipitation";
-        var body = await fetchJson(ctx, currentUrl);
-        var current = body && body.current ? body.current : null;
-        if (!current) throw new Error("天气数据为空");
-
-        return {
-            time: current.time || "",
-            temperature: toFloat(current.temperature_2m),
-            isDay: parseInt(current.is_day || 0, 10) === 1,
-            code: parseInt(current.weather_code || 0, 10),
-            cloudCover: toFloat(current.cloud_cover),
-            windSpeed: toFloat(current.wind_speed_10m),
-            precipitation: toFloat(current.precipitation),
-            timezone: body.timezone || location.timezone || ""
-        };
-    } catch (e) {
-        console.log("current weather fallback: " + safeMsg(e));
-        var hourlyUrl = baseUrl
-            + "&hourly=temperature_2m,is_day,weather_code,cloud_cover,wind_speed_10m,precipitation"
-            + "&forecast_days=1";
-        var hourlyBody = await fetchJson(ctx, hourlyUrl);
-        return normalizeHourlyWeather(hourlyBody, location);
-    }
-}
-
-function normalizeHourlyWeather(body, location) {
-    var hourly = body && body.hourly ? body.hourly : null;
-    var times = hourly && Array.isArray(hourly.time) ? hourly.time : [];
-    if (times.length === 0) throw new Error("小时天气数据为空");
-
-    var idx = pickNearestTimeIndex(times);
-    return {
-        time: times[idx] || "",
-        temperature: getSeriesValue(hourly.temperature_2m, idx),
-        isDay: getSeriesValue(hourly.is_day, idx) === 1,
-        code: parseInt(getSeriesValue(hourly.weather_code, idx) || 0, 10),
-        cloudCover: getSeriesValue(hourly.cloud_cover, idx),
-        windSpeed: getSeriesValue(hourly.wind_speed_10m, idx),
-        precipitation: getSeriesValue(hourly.precipitation, idx),
-        timezone: body.timezone || location.timezone || ""
-    };
-}
-
-function pickNearestTimeIndex(times) {
-    var now = Date.now();
-    var bestIndex = 0;
-    var bestGap = Infinity;
-
-    for (var i = 0; i < times.length; i++) {
-        var ts = new Date(times[i]).getTime();
-        if (!isFinite(ts)) continue;
-        var gap = Math.abs(ts - now);
-        if (gap < bestGap) {
-            bestGap = gap;
-            bestIndex = i;
+    var geoHosts = buildGeoHostCandidates(host);
+    var urls = [];
+    for (var i = 0; i < locationConfig.lookupQueries.length; i++) {
+        for (var j = 0; j < geoHosts.length; j++) {
+            urls.push(geoHosts[j] + "/geo/v2/city/lookup?location=" + encodeURIComponent(locationConfig.lookupQueries[i]) + "&key=" + encodeURIComponent(apiKey));
+            urls.push(geoHosts[j] + "/v2/city/lookup?location=" + encodeURIComponent(locationConfig.lookupQueries[i]) + "&key=" + encodeURIComponent(apiKey));
         }
     }
-    return bestIndex;
+
+    try {
+        var body = await fetchJsonWithFallback(ctx, uniqueUrls(urls), "地理查询");
+        if (body.code !== "200" || !Array.isArray(body.location) || body.location.length === 0) return null;
+        var loc = body.location[0] || {};
+        return {
+            id: loc.id || "",
+            name: formatLocationName(loc),
+            lat: loc.lat || "",
+            lon: loc.lon || ""
+        };
+    } catch (e) {
+        console.log("location lookup error: " + safeMsg(e));
+        return null;
+    }
 }
 
-function getSeriesValue(series, idx) {
-    if (!Array.isArray(series) || idx < 0 || idx >= series.length) return NaN;
-    return toFloat(series[idx]);
+async function fetchNow(ctx, host, apiKey, location) {
+    var weatherHosts = buildWeatherHostCandidates(host);
+    var locations = Array.isArray(location) ? location : [location];
+    var urls = [];
+    for (var i = 0; i < locations.length; i++) {
+        for (var j = 0; j < weatherHosts.length; j++) {
+            urls.push(weatherHosts[j] + "/v7/weather/now?location=" + encodeURIComponent(locations[i]) + "&key=" + encodeURIComponent(apiKey));
+        }
+    }
+    var body = await fetchJsonWithFallback(ctx, urls, "实时天气");
+    if (body.code !== "200" || !body.now) throw new Error("和风天气异常: " + (body.code || "unknown"));
+    return body;
+}
+
+function normalizeNow(body) {
+    var now = body && body.now ? body.now : {};
+    return {
+        obsTime: now.obsTime || body.updateTime || "",
+        temp: toFloat(now.temp),
+        feelsLike: toFloat(now.feelsLike),
+        text: now.text || "--",
+        icon: String(now.icon || "100"),
+        windSpeed: toFloat(now.windSpeed),
+        humidity: toFloat(now.humidity),
+        precip: toFloat(now.precip),
+        cloud: toFloat(now.cloud),
+        isNight: computeIsNightByIcon(now.icon)
+    };
 }
 
 async function resolveArtwork(ctx, tag, preferredStyle, artKey, shouldEnhance) {
     var artwork = pickArtworkByMood(tag, preferredStyle, artKey);
     if (!artwork) throw new Error("未找到匹配作品");
     if (!shouldEnhance) return artwork;
-
     try {
         var enhanced = await enhanceArtwork(ctx, artwork);
         return mergeArtwork(artwork, enhanced);
@@ -280,33 +214,23 @@ async function resolveArtwork(ctx, tag, preferredStyle, artKey, shouldEnhance) {
 function pickArtworkByMood(tag, preferredStyle, seed) {
     var candidates = ARTWORK_POOL.filter(function (item) { return item.tag === tag; });
     if (preferredStyle) {
-        var styled = candidates.filter(function (item) {
-            return Array.isArray(item.styles) && item.styles.indexOf(preferredStyle) >= 0;
-        });
+        var styled = candidates.filter(function (item) { return Array.isArray(item.styles) && item.styles.indexOf(preferredStyle) >= 0; });
         if (styled.length > 0) candidates = styled;
     }
-
-    if (candidates.length === 0) {
-        candidates = ARTWORK_POOL.filter(function (item) { return item.tag === "安静暮色"; });
-    }
-
-    var idx = stableHash(seed) % candidates.length;
-    return cloneObject(candidates[idx]);
+    if (candidates.length === 0) candidates = ARTWORK_POOL.filter(function (item) { return item.tag === "安静暮色"; });
+    return cloneObject(candidates[stableHash(seed) % candidates.length]);
 }
 
 async function enhanceArtwork(ctx, artwork) {
-    var query = artwork.query || (artwork.title + " " + artwork.artist);
-    var searchUrl = MET_SEARCH_URL + "?hasImages=true&q=" + encodeURIComponent(query);
+    var searchUrl = "https://collectionapi.metmuseum.org/public/collection/v1/search?hasImages=true&q=" + encodeURIComponent(artwork.query || (artwork.title + " " + artwork.artist));
     var searchBody = await fetchJson(ctx, searchUrl);
     var ids = searchBody && Array.isArray(searchBody.objectIDs) ? searchBody.objectIDs : [];
     if (ids.length === 0) return {};
 
     var fallback = null;
     for (var i = 0; i < Math.min(ids.length, MAX_MET_OBJECT_CANDIDATES); i++) {
-        var detailUrl = MET_OBJECT_URL + ids[i];
-        var detail = await fetchJson(ctx, detailUrl);
+        var detail = await fetchJson(ctx, "https://collectionapi.metmuseum.org/public/collection/v1/objects/" + ids[i]);
         var normalized = {
-            image: detail.primaryImageSmall || detail.primaryImage || "",
             museumUrl: detail.objectURL || "",
             department: detail.department || "",
             medium: detail.medium || "",
@@ -315,107 +239,86 @@ async function enhanceArtwork(ctx, artwork) {
             artist: detail.artistDisplayName || artwork.artist
         };
         if (!fallback) fallback = normalized;
-        if (normalized.image) return normalized;
+        if (detail.primaryImageSmall || detail.primaryImage) return normalized;
     }
-
     return fallback || {};
 }
 
 async function fetchJson(ctx, url) {
-    var resp = await ctx.http.get(url, {
-        headers: { "User-Agent": "Egern-Widget", "Accept": "application/json" },
-        timeout: 10000
-    });
+    var resp = await ctx.http.get(url, { headers: { "User-Agent": "Egern-Widget", "Accept": "application/json" }, timeout: 10000 });
     if (resp.status !== 200) {
         var bodyText = "";
         try { bodyText = await resp.text(); } catch (e) { }
-        throw new Error("HTTP " + resp.status + (bodyText ? (": " + truncateText(bodyText, 120)) : ""));
+        throw new Error("HTTP " + resp.status + " [" + shortenUrl(url) + "]" + (bodyText ? (": " + truncateText(bodyText, 120)) : ""));
     }
     return await resp.json();
 }
 
-// ============== 视图模型 ==============
+async function fetchJsonWithFallback(ctx, urls, label) {
+    var errors = [];
+    for (var i = 0; i < urls.length; i++) {
+        try {
+            return await fetchJson(ctx, urls[i]);
+        } catch (e) {
+            errors.push(shortenUrl(urls[i]) + " -> " + safeMsg(e));
+        }
+    }
+    throw new Error((label || "接口请求") + "失败: " + errors.join(" | "));
+}
 
 function buildView(data, title, accentInput, openUrl) {
     var moodMeta = MOOD_META[data.mood.tag] || MOOD_META["安静暮色"];
-    var theme = {
-        accent: accentInput || moodMeta.accent,
-        gradient: moodMeta.gradient,
-        icon: moodMeta.icon,
-        card: "rgba(255,255,255,0.08)",
-        cardStrong: "rgba(255,255,255,0.12)",
-        textMuted: "rgba(255,255,255,0.78)",
-        textSubtle: "rgba(255,255,255,0.56)"
-    };
-
-    var reason = buildReason(data.mood.tag, data.weather, data.location.name, data.artwork);
-    var weatherText = weatherLabel(data.weather.code);
-    var weatherSummary = weatherText + " " + formatTemp(data.weather.temperature);
-    var detailLine = "云量 " + formatPercent(data.weather.cloudCover) + " · 风 " + formatWind(data.weather.windSpeed);
-
     return {
         title: title,
         location: data.location,
         weather: data.weather,
         mood: data.mood,
         artwork: data.artwork,
-        theme: theme,
-        reason: reason,
-        weatherSummary: weatherSummary,
-        detailLine: detailLine,
+        theme: {
+            accent: accentInput || moodMeta.accent,
+            gradient: moodMeta.gradient,
+            icon: moodMeta.icon,
+            card: "rgba(255,255,255,0.08)",
+            textMuted: "rgba(255,255,255,0.78)",
+            textSubtle: "rgba(255,255,255,0.56)"
+        },
+        reason: buildReason(data.location.name, data.weather, data.mood.tag, data.artwork),
+        weatherSummary: data.weather.text + " " + formatTemp(data.weather.temp),
+        detailLine: "湿度 " + formatPercent(data.weather.humidity) + " · 风 " + formatWind(data.weather.windSpeed),
         openUrl: openUrl || data.artwork.museumUrl || ""
     };
 }
 
 function deriveMoodTag(weather) {
-    var code = weather.code;
-    var isDay = weather.isDay;
-    var cloud = isFinite(weather.cloudCover) ? weather.cloudCover : 0;
+    var code = parseInt(weather.icon || "100", 10);
+    var cloud = isFinite(weather.cloud) ? weather.cloud : 0;
     var wind = isFinite(weather.windSpeed) ? weather.windSpeed : 0;
-    var temp = isFinite(weather.temperature) ? weather.temperature : 20;
+    var temp = isFinite(weather.temp) ? weather.temp : 20;
+    var precip = isFinite(weather.precip) ? weather.precip : 0;
+    var isNight = weather.isNight;
     var tag = "安静暮色";
 
-    if (isThunder(code) || (wind >= 28 && cloud >= 75)) tag = "风暴前夕";
-    else if (isSnow(code)) tag = "雪地静场";
-    else if (isFog(code)) tag = "冷蓝薄雾";
-    else if (isRain(code) && !isDay) tag = "玻璃雨夜";
-    else if (isRain(code)) tag = "雨幕灰城";
-    else if (!isDay) tag = "安静暮色";
+    if (code >= 300 && code <= 399 && isNight) tag = "玻璃雨夜";
+    else if (code >= 300 && code <= 399) tag = "雨幕灰城";
+    else if (code >= 400 && code <= 499) tag = "雪地静场";
+    else if (code >= 500 && code <= 599) tag = "冷蓝薄雾";
+    else if (wind >= 28 || (code === 104 && cloud >= 85 && precip > 0)) tag = "风暴前夕";
+    else if (isNight) tag = "安静暮色";
     else if (temp <= 5 && cloud >= 65) tag = "沉灰冬晨";
-    else if (code === 0 && cloud < 18 && temp >= 20) tag = "金色午后";
-    else if (code <= 2 && cloud < 45) tag = "晴蓝留白";
+    else if (code === 100 && cloud < 20 && temp >= 20) tag = "金色午后";
+    else if ((code === 100 || code === 101 || code === 102 || code === 103) && cloud < 45) tag = "晴蓝留白";
     else if (cloud >= 80) tag = "沉灰冬晨";
 
-    return {
-        tag: tag,
-        accent: MOOD_META[tag] ? MOOD_META[tag].accent : "#A78BFA"
-    };
+    return { tag: tag };
 }
 
-function buildReason(tag, weather, city, artwork) {
-    var temp = formatTemp(weather.temperature);
-    var wind = formatWind(weather.windSpeed);
-    var cloud = formatPercent(weather.cloudCover);
-    var rain = formatPrecip(weather.precipitation);
-
-    var reasons = {
-        "金色午后": city + " 今天更像《" + artwork.title + "》。",
-        "晴蓝留白": city + " 今天更像《" + artwork.title + "》。",
-        "安静暮色": city + " 今晚更像《" + artwork.title + "》。",
-        "玻璃雨夜": city + " 今晚更像《" + artwork.title + "》。",
-        "雨幕灰城": city + " 今天更像《" + artwork.title + "》。",
-        "冷蓝薄雾": city + " 现在更像《" + artwork.title + "》。",
-        "风暴前夕": city + " 现在更像《" + artwork.title + "》。",
-        "雪地静场": city + " 今天更像《" + artwork.title + "》。",
-        "沉灰冬晨": city + " 今天更像《" + artwork.title + "》。"
-    };
+function buildReason(cityName, weather, tag, artwork) {
+    var intro = cityName + " 现在像《" + artwork.title + "》。";
     var moodLine = artwork.note || "画面的情绪和现在的天气很接近。";
-    var tail = " 当前 " + weatherLabel(weather.code) + "，" + temp + "，云量 " + cloud + "，风速 " + wind;
-    if (isFinite(weather.precipitation) && weather.precipitation > 0) tail += "，降水 " + rain;
-    return (reasons[tag] || reasons["安静暮色"]) + moodLine + tail + "。";
+    var weatherLine = "当前" + weather.text + "，" + formatTemp(weather.temp) + "，湿度 " + formatPercent(weather.humidity) + "，风速 " + formatWind(weather.windSpeed);
+    if (isFinite(weather.precip) && weather.precip > 0) weatherLine += "，降水 " + formatPrecip(weather.precip);
+    return intro + moodLine + weatherLine + "。";
 }
-
-// ============== UI 布局 ==============
 
 function buildSmall(view, status, nextRefresh) {
     return shell([
@@ -431,21 +334,21 @@ function buildSmall(view, status, nextRefresh) {
 }
 
 function buildMedium(view, status, nextRefresh) {
-    var left = vstack([
-        header(view, true),
-        sp(10),
-        tag(view.mood.tag, view.theme.accent, view.theme.accent + "22", 9),
-        sp(6),
-        txt("像《" + view.artwork.title + "》", 18, "bold", "#FFFFFF", { maxLines: 2, minScale: 0.6 }),
-        txt(view.artwork.artist, 11, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.7 }),
-        sp(6),
-        txt(view.reason, 10, "regular", view.theme.textSubtle, { maxLines: 4, minScale: 0.7 })
-    ], { flex: 1, alignItems: "start", gap: 0 });
-
-    var right = artworkPane(view, 84, 116);
-
     return shell([
-        hstack([left, sp(10), right], { alignItems: "start" }),
+        hstack([
+            vstack([
+                header(view, true),
+                sp(10),
+                tag(view.mood.tag, view.theme.accent, view.theme.accent + "22", 9),
+                sp(6),
+                txt("像《" + view.artwork.title + "》", 18, "bold", "#FFFFFF", { maxLines: 2, minScale: 0.6 }),
+                txt(view.artwork.artist, 11, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.7 }),
+                sp(6),
+                txt(view.reason, 10, "regular", view.theme.textSubtle, { maxLines: 4, minScale: 0.7 })
+            ], { flex: 1, alignItems: "start", gap: 0 }),
+            sp(10),
+            artworkPane(view, 84, 116)
+        ], { alignItems: "start" }),
         sp(8),
         infoStrip(view),
         sp(),
@@ -466,19 +369,16 @@ function buildLarge(view, status, nextRefresh) {
                 sp(8),
                 txt(view.reason, 11, "regular", view.theme.textMuted, { maxLines: 5, minScale: 0.7 }),
                 sp(8),
-                hstack([
-                    infoChip("天气", view.weatherSummary, view.theme),
-                    infoChip("风格", styleLabel(view.artwork.styles), view.theme)
-                ], { gap: 6 })
+                hstack([infoChip("天气", view.weatherSummary, view.theme), infoChip("风格", styleLabel(view.artwork.styles), view.theme)], { gap: 6 })
             ], { flex: 1, alignItems: "start", gap: 0 }),
             sp(12),
             artworkPane(view, 122, 148)
         ], { alignItems: "start" }),
         sp(10),
         hstack([
-            metricCard("云量", formatPercent(view.weather.cloudCover), view.theme),
+            metricCard("湿度", formatPercent(view.weather.humidity), view.theme),
             metricCard("风速", formatWind(view.weather.windSpeed), view.theme),
-            metricCard("降水", formatPrecip(view.weather.precipitation), view.theme)
+            metricCard("降水", formatPrecip(view.weather.precip), view.theme)
         ], { gap: 6 }),
         sp(),
         footer(status, view.theme)
@@ -491,13 +391,7 @@ function buildCircular(view, status, nextRefresh) {
         refreshAfter: nextRefresh,
         url: view.openUrl || undefined,
         gap: 2,
-        children: [
-            sp(),
-            icon(view.theme.icon, 16, view.theme.accent),
-            txt(shortMood(view.mood.tag), 11, "bold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }),
-            txt(status === "live" ? "live" : "cache", 8, "medium", view.theme.textSubtle),
-            sp()
-        ]
+        children: [sp(), icon(view.theme.icon, 16, view.theme.accent), txt(shortMood(view.mood.tag), 11, "bold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }), txt(status === "live" ? "live" : "cache", 8, "medium", view.theme.textSubtle), sp()]
     };
 }
 
@@ -520,27 +414,16 @@ function buildInline(view, status, nextRefresh) {
         type: "widget",
         refreshAfter: nextRefresh,
         url: view.openUrl || undefined,
-        children: [
-            icon(view.theme.icon, 12, view.theme.accent),
-            txt(" " + view.location.name + "像《" + truncateText(view.artwork.title, 16) + "》", 12, "medium", "#FFFFFF", { maxLines: 1, minScale: 0.55 }),
-            txt(" · " + (status === "live" ? "live" : "cached"), 11, "medium", view.theme.textSubtle)
-        ]
+        children: [icon(view.theme.icon, 12, view.theme.accent), txt(" " + view.location.name + "像《" + truncateText(view.artwork.title, 16) + "》", 12, "medium", "#FFFFFF", { maxLines: 1, minScale: 0.55 }), txt(" · " + (status === "live" ? "live" : "cached"), 11, "medium", view.theme.textSubtle)]
     };
 }
-
-// ============== UI 组件 ==============
 
 function shell(children, nextRefresh, theme, url, padding) {
     return {
         type: "widget",
         gap: 0,
         padding: padding || [14, 16, 12, 16],
-        backgroundGradient: {
-            type: "linear",
-            colors: theme.gradient,
-            startPoint: { x: 0, y: 0 },
-            endPoint: { x: 1, y: 1 }
-        },
+        backgroundGradient: { type: "linear", colors: theme.gradient, startPoint: { x: 0, y: 0 }, endPoint: { x: 1, y: 1 } },
         refreshAfter: nextRefresh,
         url: url || undefined,
         children: children
@@ -548,22 +431,8 @@ function shell(children, nextRefresh, theme, url, padding) {
 }
 
 function header(view, showTime) {
-    var children = [
-        icon(view.theme.icon, 14, view.theme.accent),
-        txt(view.title, 12, "bold", view.theme.accent, { minScale: 0.7 }),
-        sp(),
-        txt(view.location.name, 10, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.7 })
-    ];
-    if (showTime) {
-        children.push(sp(6));
-        children.push({
-            type: "date",
-            date: new Date().toISOString(),
-            format: "time",
-            font: { size: 9, weight: "medium" },
-            textColor: view.theme.textSubtle
-        });
-    }
+    var children = [icon(view.theme.icon, 14, view.theme.accent), txt(view.title, 12, "bold", view.theme.accent, { minScale: 0.7 }), sp(), txt(view.location.name, 10, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.7 })];
+    if (showTime) children.push(sp(6), { type: "date", date: new Date().toISOString(), format: "time", font: { size: 9, weight: "medium" }, textColor: view.theme.textSubtle });
     return hstack(children, { gap: 5, alignItems: "center" });
 }
 
@@ -577,73 +446,29 @@ function artworkPane(view, width, height) {
         backgroundColor: "rgba(255,255,255,0.1)",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.15)",
-        children: [
-            vstack([
-                txt("《" + view.artwork.title + "》", 12, "bold", "#FFFFFF", { maxLines: 4, minScale: 0.6 }),
-                sp(6),
-                txt(view.artwork.artist, 10, "medium", view.theme.textMuted, { maxLines: 2, minScale: 0.7 }),
-                sp(),
-                txt(view.mood.tag, 9, "semibold", view.theme.accent)
-            ], { gap: 0, alignItems: "start", height: height - 20, width: width - 20 })
-        ]
+        children: [vstack([txt("《" + view.artwork.title + "》", 12, "bold", "#FFFFFF", { maxLines: 4, minScale: 0.6 }), sp(6), txt(view.artwork.artist, 10, "medium", view.theme.textMuted, { maxLines: 2, minScale: 0.7 }), sp(), txt(view.mood.tag, 9, "semibold", view.theme.accent)], { gap: 0, alignItems: "start", height: height - 20, width: width - 20 })]
     };
 }
 
 function infoStrip(view) {
-    return hstack([
-        infoChip("天气", view.weatherSummary, view.theme),
-        infoChip("空气", cloudTone(view.weather.cloudCover), view.theme),
-        infoChip("风速", formatWind(view.weather.windSpeed), view.theme)
-    ], { gap: 6 });
+    return hstack([infoChip("天气", view.weatherSummary, view.theme), infoChip("空气", cloudTone(view.weather.cloud), view.theme), infoChip("风速", formatWind(view.weather.windSpeed), view.theme)], { gap: 6 });
 }
 
 function metricCard(label, value, theme) {
-    return vstack([
-        txt(label, 9, "medium", theme.textSubtle),
-        txt(value, 12, "bold", "#FFFFFF", { minScale: 0.7, maxLines: 1 })
-    ], {
-        flex: 1,
-        gap: 2,
-        padding: [8, 10, 8, 10],
-        backgroundColor: theme.card,
-        borderRadius: 10
-    });
+    return vstack([txt(label, 9, "medium", theme.textSubtle), txt(value, 12, "bold", "#FFFFFF", { minScale: 0.7, maxLines: 1 })], { flex: 1, gap: 2, padding: [8, 10, 8, 10], backgroundColor: theme.card, borderRadius: 10 });
 }
 
 function infoChip(label, value, theme) {
-    return hstack([
-        txt(label, 9, "medium", theme.textSubtle),
-        txt(value, 10, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.7 })
-    ], {
-        gap: 4,
-        padding: [4, 8, 4, 8],
-        backgroundColor: theme.card,
-        borderRadius: 8
-    });
+    return hstack([txt(label, 9, "medium", theme.textSubtle), txt(value, 10, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.7 })], { gap: 4, padding: [4, 8, 4, 8], backgroundColor: theme.card, borderRadius: 8 });
 }
 
 function footer(status, theme) {
     var isLive = status === "live";
-    return hstack([
-        icon("clock.arrow.circlepath", 8, theme.textSubtle),
-        {
-            type: "date",
-            date: new Date().toISOString(),
-            format: "relative",
-            font: { size: 9, weight: "medium" },
-            textColor: theme.textSubtle
-        },
-        sp(),
-        tag(isLive ? "实时" : "缓存", isLive ? "#10B981" : "#F59E0B", isLive ? "rgba(16,185,129,0.16)" : "rgba(245,158,11,0.16)", 8)
-    ], { gap: 4, alignItems: "center" });
+    return hstack([icon("clock.arrow.circlepath", 8, theme.textSubtle), { type: "date", date: new Date().toISOString(), format: "relative", font: { size: 9, weight: "medium" }, textColor: theme.textSubtle }, sp(), tag(isLive ? "实时" : "缓存", isLive ? "#10B981" : "#F59E0B", isLive ? "rgba(16,185,129,0.16)" : "rgba(245,158,11,0.16)", 8)], { gap: 4, alignItems: "center" });
 }
 
 function tag(text, color, bg, size) {
-    return hstack([txt(text, size || 9, "semibold", color, { maxLines: 1, minScale: 0.6 })], {
-        padding: [2, 6, 2, 6],
-        backgroundColor: bg,
-        borderRadius: 6
-    });
+    return hstack([txt(text, size || 9, "semibold", color, { maxLines: 1, minScale: 0.6 })], { padding: [2, 6, 2, 6], backgroundColor: bg, borderRadius: 6 });
 }
 
 function errorWidget(title, msg) {
@@ -651,62 +476,19 @@ function errorWidget(title, msg) {
         type: "widget",
         padding: 16,
         gap: 8,
-        backgroundGradient: {
-            type: "linear",
-            colors: ["#101826", "#1F2937"],
-            startPoint: { x: 0, y: 0 },
-            endPoint: { x: 1, y: 1 }
-        },
-        children: [
-            hstack([icon("exclamationmark.triangle.fill", 14, "#F87171"), txt(title, "headline", "bold", "#FFFFFF")], { gap: 6 }),
-            sp(4),
-            txt(msg || "未知错误", "caption1", "regular", "rgba(255,255,255,0.7)", { maxLines: 5 })
-        ]
+        backgroundGradient: { type: "linear", colors: ["#101826", "#1F2937"], startPoint: { x: 0, y: 0 }, endPoint: { x: 1, y: 1 } },
+        children: [hstack([icon("exclamationmark.triangle.fill", 14, "#F87171"), txt(title, "headline", "bold", "#FFFFFF")], { gap: 6 }), sp(4), txt(msg || "未知错误", "caption1", "regular", "rgba(255,255,255,0.7)", { maxLines: 5 })]
     };
-}
-
-// ============== 文本与规则 ==============
-
-function weatherLabel(code) {
-    if (code === 0) return "晴";
-    if (code === 1) return "大部晴朗";
-    if (code === 2) return "局部多云";
-    if (code === 3) return "阴";
-    if (code === 45 || code === 48) return "雾";
-    if (code === 51 || code === 53 || code === 55) return "毛毛雨";
-    if (code === 56 || code === 57) return "冻雨";
-    if (code === 61 || code === 63 || code === 65) return "雨";
-    if (code === 66 || code === 67) return "冻雨";
-    if (code === 71 || code === 73 || code === 75 || code === 77) return "雪";
-    if (code === 80 || code === 81 || code === 82) return "阵雨";
-    if (code === 85 || code === 86) return "阵雪";
-    if (code === 95 || code === 96 || code === 99) return "雷暴";
-    return "天气未知";
 }
 
 function styleLabel(styles) {
     if (!Array.isArray(styles) || styles.length === 0) return "馆藏匹配";
-    var map = {
-        impressionism: "印象派",
-        light: "明亮",
-        day: "日景",
-        night: "夜景",
-        city: "城市",
-        rain: "雨景",
-        mist: "雾景",
-        storm: "风暴",
-        quiet: "静场",
-        snow: "雪景",
-        winter: "冬景",
-        realism: "现实主义",
-        dramatic: "戏剧感",
-        sea: "海景"
-    };
+    var map = { impressionism: "印象派", light: "明亮", day: "日景", night: "夜景", city: "城市", rain: "雨景", mist: "雾景", storm: "风暴", quiet: "静场", snow: "雪景", winter: "冬景", realism: "现实主义", dramatic: "戏剧感", sea: "海景" };
     return styles.slice(0, 2).map(function (item) { return map[item] || item; }).join(" · ");
 }
 
-function cloudTone(cloudCover) {
-    var n = toFloat(cloudCover);
+function cloudTone(cloud) {
+    var n = toFloat(cloud);
     if (!isFinite(n)) return "--";
     if (n < 20) return "通透";
     if (n < 50) return "留白";
@@ -715,77 +497,84 @@ function cloudTone(cloudCover) {
 }
 
 function shortMood(tag) {
-    var map = {
-        "金色午后": "金午",
-        "晴蓝留白": "晴蓝",
-        "安静暮色": "暮色",
-        "玻璃雨夜": "雨夜",
-        "雨幕灰城": "灰城",
-        "冷蓝薄雾": "薄雾",
-        "风暴前夕": "风暴",
-        "雪地静场": "雪静",
-        "沉灰冬晨": "冬晨"
-    };
+    var map = { "金色午后": "金午", "晴蓝留白": "晴蓝", "安静暮色": "暮色", "玻璃雨夜": "雨夜", "雨幕灰城": "灰城", "冷蓝薄雾": "薄雾", "风暴前夕": "风暴", "雪地静场": "雪静", "沉灰冬晨": "冬晨" };
     return map[tag] || "像画";
 }
 
-function isRain(code) {
-    return [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].indexOf(code) >= 0;
+function computeIsNightByIcon(icon) {
+    var code = parseInt(icon || "100", 10);
+    return code >= 150 && code < 200;
 }
 
-function isSnow(code) {
-    return [71, 73, 75, 77, 85, 86].indexOf(code) >= 0;
+function resolveLocationConfig(locationInput, lat, lon, city) {
+    if (locationInput) {
+        var raw = String(locationInput || "").trim();
+        var source = isLocationId(raw) ? "locationId" : (looksLikeCoordinate(raw) ? "coordinate" : "text");
+        var coordinateCandidates = source === "coordinate" ? buildCoordinateCandidates(raw) : [raw];
+        return {
+            source: source,
+            weatherLocation: coordinateCandidates,
+            lookupQueries: source === "locationId" ? [] : coordinateCandidates,
+            displayFallback: looksLikeCoordinate(raw) ? "当前位置" : raw,
+            cacheKey: raw
+        };
+    }
+
+    if (isFinite(lat) && isFinite(lon)) {
+        var coordinate = lon + "," + lat;
+        return {
+            source: "coordinate",
+            weatherLocation: [coordinate],
+            lookupQueries: [coordinate],
+            displayFallback: "当前位置",
+            cacheKey: coordinate
+        };
+    }
+
+    var cityText = String(city || "").trim();
+    return {
+        source: "city",
+        weatherLocation: "",
+        lookupQueries: cityText ? [cityText] : [],
+        displayFallback: cityText || "--",
+        cacheKey: cityText
+    };
 }
 
-function isFog(code) {
-    return code === 45 || code === 48;
+function resolveWeatherLocation(locationConfig, locationInfo) {
+    if (!locationConfig) throw new Error("位置配置缺失");
+    if (locationConfig.source === "city" || locationConfig.source === "text") {
+        if (locationInfo && locationInfo.id) return [locationInfo.id];
+        if (locationConfig.source === "city") {
+            throw new Error("城市解析失败，请检查 CITY");
+        }
+        if (Array.isArray(locationConfig.weatherLocation) && locationConfig.weatherLocation.length > 0) {
+            return locationConfig.weatherLocation;
+        }
+        throw new Error("位置解析失败，请检查 LOCATION");
+    }
+    return locationConfig.weatherLocation;
 }
 
-function isThunder(code) {
-    return code === 95 || code === 96 || code === 99;
+function resolveLocationName(input, locationInfo, fallback) {
+    if (input) return input;
+    if (locationInfo && locationInfo.name) return locationInfo.name;
+    if (looksLikeCoordinate(fallback)) return "当前位置";
+    return fallback || "--";
 }
 
-// ============== DSL 工具 ==============
-
-function txt(text, size, weight, color, opts) {
-    var el = { type: "text", text: String(text), font: { size: size || "body", weight: weight || "regular" } };
-    if (color) el.textColor = color;
-    if (opts) { for (var k in opts) el[k] = opts[k]; }
-    return el;
+function formatLocationName(loc) {
+    if (!loc) return "";
+    var city = loc.adm2 || loc.adm1 || "";
+    var district = loc.name || "";
+    if (city && district && city !== district) return city + "·" + district;
+    return district || city || loc.adm1 || "";
 }
-
-function icon(name, size, color) {
-    var el = { type: "image", src: "sf-symbol:" + name, width: size, height: size };
-    if (color) el.color = color;
-    return el;
-}
-
-function hstack(children, opts) {
-    var el = { type: "stack", direction: "row", alignItems: "center", children: children };
-    if (opts) { for (var k in opts) el[k] = opts[k]; }
-    return el;
-}
-
-function vstack(children, opts) {
-    var el = { type: "stack", direction: "column", alignItems: "start", children: children };
-    if (opts) { for (var k in opts) el[k] = opts[k]; }
-    return el;
-}
-
-function sp(len) {
-    var el = { type: "spacer" };
-    if (len != null) el.length = len;
-    return el;
-}
-
-// ============== 通用工具 ==============
 
 function mergeArtwork(base, extra) {
     var merged = cloneObject(base);
     if (!extra) return merged;
-    for (var k in extra) {
-        if (extra[k] != null && extra[k] !== "") merged[k] = extra[k];
-    }
+    for (var k in extra) if (extra[k] != null && extra[k] !== "") merged[k] = extra[k];
     return merged;
 }
 
@@ -793,16 +582,6 @@ function cloneObject(obj) {
     var out = {};
     for (var k in obj) out[k] = obj[k];
     return out;
-}
-
-function buildInputKey(opts) {
-    return [
-        (opts.city || "").toLowerCase(),
-        isFinite(opts.lat) ? opts.lat.toFixed(4) : "",
-        isFinite(opts.lon) ? opts.lon.toFixed(4) : "",
-        opts.style || "",
-        opts.showImage ? "img" : "text"
-    ].join("|");
 }
 
 function buildArtKey(locationName, tag, preferredStyle, randomness) {
@@ -815,9 +594,7 @@ function buildArtKey(locationName, tag, preferredStyle, randomness) {
 function stableHash(text) {
     var str = String(text || "");
     var hash = 0;
-    for (var i = 0; i < str.length; i++) {
-        hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-    }
+    for (var i = 0; i < str.length; i++) hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
     return Math.abs(hash);
 }
 
@@ -825,14 +602,6 @@ function truncateText(text, maxLen) {
     var str = String(text || "");
     if (str.length <= maxLen) return str;
     return str.slice(0, Math.max(0, maxLen - 1)) + "…";
-}
-
-function formatGeoName(item) {
-    if (!item) return "当前城市";
-    var parts = [];
-    if (item.name) parts.push(item.name);
-    if (item.admin1 && item.admin1 !== item.name) parts.push(item.admin1);
-    return parts.length > 0 ? parts.join(" · ") : "当前城市";
 }
 
 function formatTemp(val) {
@@ -860,6 +629,17 @@ function formatPrecip(val) {
     return n.toFixed(1) + " mm";
 }
 
+function normalizeHost(raw) {
+    var h = String(raw || "").trim();
+    if (!h) return "";
+    if (!/^https?:\/\//i.test(h)) h = "https://" + h;
+    return h.replace(/\/$/, "");
+}
+
+function looksLikeCoordinate(val) {
+    return /^-?\d+(?:\.\d+)?,\s*-?\d+(?:\.\d+)?$/.test(String(val || "").trim());
+}
+
 function clampNumber(val, min, max) {
     var n = parseInt(val, 10);
     if (!isFinite(n)) n = min;
@@ -878,6 +658,10 @@ function isTrue(val) {
     return v === "1" || v === "true" || v === "yes" || v === "y" || v === "on";
 }
 
+function isLocationId(val) {
+    return /^\d+$/.test(String(val || "").trim());
+}
+
 function isValidLatitude(val) {
     return isFinite(val) && val >= -90 && val <= 90;
 }
@@ -888,6 +672,73 @@ function isValidLongitude(val) {
 
 function pad2(n) {
     return n < 10 ? "0" + n : String(n);
+}
+
+function shortenUrl(url) {
+    var text = String(url || "");
+    return text.replace(/^https?:\/\//i, "");
+}
+
+function buildGeoHostCandidates(host) {
+    return uniqueHosts([
+        replaceHostPrefix(host, "geoapi."),
+        host,
+        replaceHostPrefix(host, "api."),
+        replaceHostPrefix(host, "devapi.")
+    ]);
+}
+
+function buildWeatherHostCandidates(host) {
+    return uniqueHosts([
+        replaceHostPrefix(host, "devapi."),
+        replaceHostPrefix(host, "api."),
+        host,
+        replaceHostPrefix(host, "geoapi.")
+    ]);
+}
+
+function replaceHostPrefix(host, prefix) {
+    var normalized = normalizeHost(host);
+    if (!normalized) return "";
+    return normalized.replace(/^(https?:\/\/)(?:devapi|geoapi|api)\./i, "$1" + prefix);
+}
+
+function uniqueHosts(hosts) {
+    var map = {};
+    var list = [];
+    for (var i = 0; i < hosts.length; i++) {
+        var item = normalizeHost(hosts[i]);
+        if (!item || map[item]) continue;
+        map[item] = true;
+        list.push(item);
+    }
+    return list;
+}
+
+function uniqueUrls(urls) {
+    var map = {};
+    var list = [];
+    for (var i = 0; i < urls.length; i++) {
+        var item = String(urls[i] || "");
+        if (!item || map[item]) continue;
+        map[item] = true;
+        list.push(item);
+    }
+    return list;
+}
+
+function buildCoordinateCandidates(raw) {
+    var list = [raw];
+    var parts = String(raw || "").split(",");
+    if (parts.length !== 2) return list;
+
+    var first = parseFloat(parts[0]);
+    var second = parseFloat(parts[1]);
+    if (!isFinite(first) || !isFinite(second)) return list;
+
+    var swapped = second + "," + first;
+    if (swapped !== raw) list.push(swapped);
+    return uniqueUrls(list);
 }
 
 function loadCache(ctx) {

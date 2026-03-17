@@ -1,35 +1,42 @@
 name: "City Painting"
-description: "根据 Open-Meteo 实时天气，把你所在城市翻译成一幅最像它的画；支持本地作品池兜底与 Met 馆藏详情增强"
+description: "基于和风天气实时天气，把你所在城市翻译成一幅最像它的画；支持本地作品池兜底和 Met 馆藏详情增强"
 author: "kingsley"
 scriptings:
-# ┌────────────────────────────────────────────────────────────┐
-# │             你的城市像哪幅画 配置说明                      │
-# └────────────────────────────────────────────────────────────┘
 # 环境变量 (env):
 #
 # TITLE (可选，默认 "你的城市像哪幅画")
 #   小组件标题
 #
-# CITY (可选)
-#   城市名；与 LAT/LON 二选一，若未提供坐标则通过城市名解析
+# HOST (必填)
+#   和风天气 API Host，建议与 weather-commute 使用同一值；可只填域名，脚本会自动补全 https://
 #
-# LOCATION_NAME (可选)
-#   自定义展示名称；提供 LAT/LON 时推荐填写
+# API_KEY (必填)
+#   和风天气 API Key
+#
+# LOCATION (推荐)
+#   直接传和风天气 location 参数，格式与 weather-commute 完全一致：
+#   经纬度（经度,纬度）或 LocationID
 #
 # LAT/LON (可选)
-#   城市或当前位置经纬度；若提供则跳过城市解析
+#   若未设置 LOCATION，可通过经纬度自动拼成 LOCATION（经度,纬度）
+#
+# CITY (可选)
+#   仅在未设置 LOCATION、LAT/LON 时使用；脚本会先做 geo lookup，再请求实时天气
+#
+# LOCATION_NAME (可选)
+#   自定义展示地名；不填时将自动解析 LOCATION/CITY
 #
 # ACCENT_COLOR (可选)
-#   自定义强调色；不填则按气质标签自动切换
+#   强调色；不填则按气质标签自动切换
 #
 # PREFERRED_STYLE (可选)
 #   偏好风格，例如 impressionism / night / storm / snow
 #
-# SHOW_IMAGE (可选，默认 false)
-#   当前仅保留兼容；为避免远程图片 400 导致组件报错，现阶段不会直接渲染外部作品图
-#
 # ENHANCE_ART (可选，默认 true)
-#   是否调用 Met API 补充馆藏图片与链接
+#   是否调用 Met API 补充馆藏链接和作品信息
+#
+# SHOW_IMAGE (可选，默认 false)
+#   仅保留兼容；当前不会渲染外部图片，避免远程图片错误影响组件
 #
 # RANDOMNESS (可选，默认 false)
 #   设为 true 时允许同一天内按小时切换同标签作品
@@ -41,7 +48,7 @@ scriptings:
 #   作品刷新间隔（小时）
 #
 # FORCE_REFRESH (可选，默认 false)
-#   设为 true 时忽略缓存强制拉取最新数据
+#   设为 true 时忽略缓存强制刷新
 #
 # OPEN_URL (可选)
 #   点击组件跳转链接；若不填则优先使用 Met 馆藏链接
