@@ -67,6 +67,9 @@ export default async function (ctx) {
     if (!city && (!isFinite(lat) || !isFinite(lon))) {
         return errorWidget("缺少配置", "请设置 CITY 或 LAT/LON");
     }
+    if ((isFinite(lat) && !isValidLatitude(lat)) || (isFinite(lon) && !isValidLongitude(lon))) {
+        return errorWidget("坐标无效", "LAT 需在 -90 到 90，LON 需在 -180 到 180");
+    }
 
     var inputKey = buildInputKey({
         city: city,
@@ -188,26 +191,76 @@ async function resolveLocation(ctx, opts) {
 }
 
 async function fetchCurrentWeather(ctx, location) {
-    var url = OPEN_METEO_FORECAST_URL
+    var baseUrl = OPEN_METEO_FORECAST_URL
         + "?latitude=" + encodeURIComponent(location.latitude)
         + "&longitude=" + encodeURIComponent(location.longitude)
-        + "&current=temperature_2m,is_day,weather_code,cloud_cover,wind_speed_10m,precipitation"
         + "&timezone=auto";
 
-    var body = await fetchJson(ctx, url);
-    var current = body && body.current ? body.current : null;
-    if (!current) throw new Error("天气数据为空");
+    try {
+        var currentUrl = baseUrl
+            + "&current=temperature_2m,is_day,weather_code,cloud_cover,wind_speed_10m,precipitation";
+        var body = await fetchJson(ctx, currentUrl);
+        var current = body && body.current ? body.current : null;
+        if (!current) throw new Error("天气数据为空");
 
+        return {
+            time: current.time || "",
+            temperature: toFloat(current.temperature_2m),
+            isDay: parseInt(current.is_day || 0, 10) === 1,
+            code: parseInt(current.weather_code || 0, 10),
+            cloudCover: toFloat(current.cloud_cover),
+            windSpeed: toFloat(current.wind_speed_10m),
+            precipitation: toFloat(current.precipitation),
+            timezone: body.timezone || location.timezone || ""
+        };
+    } catch (e) {
+        console.log("current weather fallback: " + safeMsg(e));
+        var hourlyUrl = baseUrl
+            + "&hourly=temperature_2m,is_day,weather_code,cloud_cover,wind_speed_10m,precipitation"
+            + "&forecast_days=1";
+        var hourlyBody = await fetchJson(ctx, hourlyUrl);
+        return normalizeHourlyWeather(hourlyBody, location);
+    }
+}
+
+function normalizeHourlyWeather(body, location) {
+    var hourly = body && body.hourly ? body.hourly : null;
+    var times = hourly && Array.isArray(hourly.time) ? hourly.time : [];
+    if (times.length === 0) throw new Error("小时天气数据为空");
+
+    var idx = pickNearestTimeIndex(times);
     return {
-        time: current.time || "",
-        temperature: toFloat(current.temperature_2m),
-        isDay: parseInt(current.is_day || 0, 10) === 1,
-        code: parseInt(current.weather_code || 0, 10),
-        cloudCover: toFloat(current.cloud_cover),
-        windSpeed: toFloat(current.wind_speed_10m),
-        precipitation: toFloat(current.precipitation),
+        time: times[idx] || "",
+        temperature: getSeriesValue(hourly.temperature_2m, idx),
+        isDay: getSeriesValue(hourly.is_day, idx) === 1,
+        code: parseInt(getSeriesValue(hourly.weather_code, idx) || 0, 10),
+        cloudCover: getSeriesValue(hourly.cloud_cover, idx),
+        windSpeed: getSeriesValue(hourly.wind_speed_10m, idx),
+        precipitation: getSeriesValue(hourly.precipitation, idx),
         timezone: body.timezone || location.timezone || ""
     };
+}
+
+function pickNearestTimeIndex(times) {
+    var now = Date.now();
+    var bestIndex = 0;
+    var bestGap = Infinity;
+
+    for (var i = 0; i < times.length; i++) {
+        var ts = new Date(times[i]).getTime();
+        if (!isFinite(ts)) continue;
+        var gap = Math.abs(ts - now);
+        if (gap < bestGap) {
+            bestGap = gap;
+            bestIndex = i;
+        }
+    }
+    return bestIndex;
+}
+
+function getSeriesValue(series, idx) {
+    if (!Array.isArray(series) || idx < 0 || idx >= series.length) return NaN;
+    return toFloat(series[idx]);
 }
 
 async function resolveArtwork(ctx, tag, preferredStyle, artKey, shouldEnhance) {
@@ -273,7 +326,11 @@ async function fetchJson(ctx, url) {
         headers: { "User-Agent": "Egern-Widget", "Accept": "application/json" },
         timeout: 10000
     });
-    if (resp.status !== 200) throw new Error("HTTP " + resp.status);
+    if (resp.status !== 200) {
+        var bodyText = "";
+        try { bodyText = await resp.text(); } catch (e) { }
+        throw new Error("HTTP " + resp.status + (bodyText ? (": " + truncateText(bodyText, 120)) : ""));
+    }
     return await resp.json();
 }
 
@@ -819,6 +876,14 @@ function toFloat(val) {
 function isTrue(val) {
     var v = String(val || "").toLowerCase();
     return v === "1" || v === "true" || v === "yes" || v === "y" || v === "on";
+}
+
+function isValidLatitude(val) {
+    return isFinite(val) && val >= -90 && val <= 90;
+}
+
+function isValidLongitude(val) {
+    return isFinite(val) && val >= -180 && val <= 180;
 }
 
 function pad2(n) {
