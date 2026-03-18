@@ -592,7 +592,7 @@ function buildMedium(vm, refreshAfter) {
 }
 
 function buildLarge(vm, refreshAfter) {
-  var list = vm.items.slice(0, 6);
+  var list = vm.items.slice(0, 5);
   if (list.length === 0) list = [vm.focus];
   return shell([
     header(vm.title, vm.statusColor, true),
@@ -665,34 +665,112 @@ function summaryLine(vm) {
   });
 }
 
+function subscriptionCompactMetaText(item) {
+  if (!item) return "暂无数据";
+  if (!item.isUsable) return item.subtitle || item.statusText || "请求失败";
+  if (item.isExpired) return item.expiryText;
+  if (item.daysLeft != null && item.daysLeft <= 7) return item.expiryText;
+  if (item.level === "danger" || item.level === "warning") return item.metaText || item.subtitle || item.expiryText;
+  return item.subtitle || item.expiryText;
+}
+
+function subscriptionUsageBar(item, height) {
+  var barHeight = clampFloat(height, 3, 8);
+  var radius = barHeight / 2;
+  var safe = clampFloat(item && item.isUsable ? item.progress : 0, 0, 1);
+  var fillRatio = safe > 0 ? Math.max(0.02, safe) : 0;
+  var fill = {
+    type: "stack",
+    flex: fillRatio,
+    height: barHeight,
+    borderRadius: radius,
+    backgroundColor: item && (item.accent || item.statusColor) ? (item.accent || item.statusColor) : "#8AB4FF",
+    children: []
+  };
+
+  if (item && Array.isArray(item.gradient) && item.gradient.length > 0) {
+    fill.backgroundGradient = {
+      type: "linear",
+      colors: item.gradient,
+      startPoint: { x: 0, y: 0.5 },
+      endPoint: { x: 1, y: 0.5 }
+    };
+    delete fill.backgroundColor;
+  }
+
+  return {
+    type: "stack",
+    direction: "row",
+    width: "100%",
+    height: barHeight,
+    borderRadius: radius,
+    backgroundColor: item && item.trackColor ? item.trackColor : "rgba(255,255,255,0.08)",
+    children: [
+      fill,
+      { type: "stack", flex: 1 - safe, children: [] }
+    ]
+  };
+}
+
 function subscriptionCompactRow(item, compact) {
-  var trailing = item.compactText || item.statusText || "--";
-  return hstack([
-    tagDot(item.accent || item.statusColor || "#8AB4FF"),
+  var accent = item.accent || item.statusColor || "#8AB4FF";
+  var titleRow = hstack([
+    tagDot(accent),
     txt(item.name, compact ? 11 : 12, "medium", "#F7FAFF", { flex: 1, maxLines: 1, minScale: 0.64 }),
-    txt(trailing, compact ? 9 : 10, "semibold", item.accent || item.statusColor || "#8AB4FF", { maxLines: 1, minScale: 0.58 })
+    txt(item.isUsable ? item.percentText : item.statusText, compact ? 9 : 10, "semibold", accent, { maxLines: 1, minScale: 0.58 })
   ], {
-    url: item.openUrl || undefined,
     gap: compact ? 4 : 5,
-    alignItems: "center"
+    alignItems: "center",
+    width: "100%"
+  });
+
+  var children = [titleRow];
+  if (item.isUsable) {
+    children.push(subscriptionUsageBar(item, compact ? 4 : 5));
+    if (!compact) {
+      children.push(txt(subscriptionCompactMetaText(item), 9, "medium", "rgba(235,240,248,0.62)", {
+        maxLines: 1,
+        minScale: 0.64
+      }));
+    }
+  } else {
+    children.push(txt(item.subtitle || item.expiryText || "请求失败", compact ? 8 : 9, "medium", "rgba(235,240,248,0.56)", {
+      maxLines: 1,
+      minScale: 0.62
+    }));
+  }
+
+  return vstack(children, {
+    url: item.openUrl || undefined,
+    gap: compact ? 3 : 4,
+    alignItems: "start",
+    width: "100%"
   });
 }
 
 function subscriptionExpandedRow(item) {
   var detailText = item.isUsable
     ? (item.trafficText + " · " + item.expiryText)
-    : item.expiryText;
-  return vstack([
+    : (item.expiryText || item.subtitle || item.statusText);
+  var accent = item.accent || item.statusColor || "#8AB4FF";
+  var children = [
     hstack([
-      tagDot(item.accent || item.statusColor || "#8AB4FF"),
+      tagDot(accent),
       txt(item.name, 12, "semibold", "#F7FAFF", { flex: 1, maxLines: 1, minScale: 0.68 }),
-      txt(item.percentText, 12, "bold", item.accent || item.statusColor || "#F7FAFF", { maxLines: 1, minScale: 0.68 })
-    ], { gap: 6, alignItems: "center" }),
-    txt(detailText, 10, "medium", "rgba(235,240,248,0.62)", { maxLines: 1, minScale: 0.64 })
-  ], {
+      txt(item.isUsable ? item.percentText : item.statusText, 12, "bold", accent, { maxLines: 1, minScale: 0.68 })
+    ], { gap: 6, alignItems: "center", width: "100%" })
+  ];
+
+  if (item.isUsable) {
+    children.push(subscriptionUsageBar(item, 6));
+  }
+  children.push(txt(detailText, 10, "medium", "rgba(235,240,248,0.62)", { maxLines: 1, minScale: 0.64 }));
+
+  return vstack(children, {
     url: item.openUrl || undefined,
-    gap: 6,
-    alignItems: "start"
+    gap: item.isUsable ? 6 : 4,
+    alignItems: "start",
+    width: "100%"
   });
 }
 
