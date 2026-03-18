@@ -175,7 +175,7 @@ async function fetchSubscription(ctx, sub, opts) {
 async function requestSubscriptionHead(ctx, url, opts) {
   var resp = await ctx.http.head(url, {
     headers: {
-      "User-Agent": "Egern-Airport-Subscribe",
+      "User-Agent": "ClashMeta",
       "Accept": "*/*"
     },
     timeout: opts.timeoutMs,
@@ -191,7 +191,7 @@ async function requestSubscriptionHead(ctx, url, opts) {
 async function requestSubscriptionRange(ctx, url, opts) {
   var resp = await ctx.http.get(url, {
     headers: {
-      "User-Agent": "Egern-Airport-Subscribe",
+      "User-Agent": "ClashMeta",
       "Accept": "*/*",
       "Range": "bytes=0-0"
     },
