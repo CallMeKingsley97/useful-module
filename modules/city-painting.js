@@ -268,7 +268,9 @@ async function fetchJsonWithFallback(ctx, urls, label) {
 
 function buildView(data, title, accentInput, openUrl) {
     var moodMeta = MOOD_META[data.mood.tag] || MOOD_META["安静暮色"];
+    var accent = accentInput || moodMeta.accent;
     var artworkMeta = data.artwork.artist + (data.artwork.objectDate ? " · " + data.artwork.objectDate : "");
+    var reason = buildReason(data.location.name, data.weather, data.mood.tag, data.artwork);
     return {
         title: title,
         location: data.location,
@@ -276,19 +278,29 @@ function buildView(data, title, accentInput, openUrl) {
         mood: data.mood,
         artwork: data.artwork,
         artworkMeta: artworkMeta,
+        artworkNote: data.artwork.note || "画面情绪与当下天气接近。",
         styleText: styleLabel(data.artwork.styles),
+        reason: reason,
+        reasonShort: truncateText(reason, 96),
         theme: {
-            accent: accentInput || moodMeta.accent,
+            accent: accent,
+            accentSoft: colorWithAlpha(accent, 0.16),
+            accentGlass: colorWithAlpha(accent, 0.24),
+            accentGlow: colorWithAlpha(accent, 0.36),
+            accentLine: colorWithAlpha(accent, 0.52),
             gradient: moodMeta.gradient,
             icon: moodMeta.icon,
             card: "rgba(255,255,255,0.08)",
-            cardStrong: "rgba(255,255,255,0.12)",
-            cardSoft: "rgba(255,255,255,0.06)",
+            cardStrong: "rgba(255,255,255,0.14)",
+            cardSoft: "rgba(255,255,255,0.05)",
+            glass: "rgba(255,255,255,0.10)",
+            glassStrong: "rgba(255,255,255,0.16)",
             hairline: "rgba(255,255,255,0.12)",
+            hairlineStrong: colorWithAlpha(accent, 0.40),
             textMuted: "rgba(255,255,255,0.78)",
-            textSubtle: "rgba(255,255,255,0.56)"
+            textSubtle: "rgba(255,255,255,0.58)",
+            textFaint: "rgba(255,255,255,0.40)"
         },
-        reason: buildReason(data.location.name, data.weather, data.mood.tag, data.artwork),
         weatherSummary: data.weather.text + " " + formatTemp(data.weather.temp),
         detailLine: "湿度 " + formatPercent(data.weather.humidity) + " · 风 " + formatWind(data.weather.windSpeed),
         openUrl: openUrl || data.artwork.museumUrl || ""
@@ -328,36 +340,22 @@ function buildReason(cityName, weather, tag, artwork) {
 
 function buildSmall(view, status, nextRefresh) {
     return shell([
-        hstack([
-            hstack([
-                icon(view.theme.icon, 10, view.theme.accent),
-                txt(view.location.name, 10, "semibold", view.theme.accent, { maxLines: 1, minScale: 0.7 })
-            ], { gap: 4, alignItems: "center" }),
-            sp(),
-            txt(view.weatherSummary, 10, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.72 })
-        ], { gap: 6, alignItems: "center" }),
-        sp(10),
-        txt("像《" + view.artwork.title + "》", 19, "bold", "#FFFFFF", { maxLines: 2, minScale: 0.52 }),
-        sp(4),
-        txt(view.artworkMeta, 10, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.68 }),
-        sp(10),
-        panel([
-            hstack([
-                tag(view.mood.tag, view.theme.accent, view.theme.accent + "22", 9),
-                sp(),
-                txt(feelsLikeText(view.weather), 10, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.72 })
-            ], { gap: 6, alignItems: "center" }),
-            sp(7),
-            txt(view.reason, 10, "regular", view.theme.textSubtle, { maxLines: 2, minScale: 0.72 })
-        ], view.theme, { padding: [10, 11, 10, 11], borderRadius: 14, backgroundColor: view.theme.cardStrong }),
+        heroCard(view, status, {
+            compact: true,
+            titleSize: 18,
+            titleScale: 0.54,
+            noteLines: 2,
+            padding: [12, 12, 12, 12]
+        }),
         sp(8),
         hstack([
-            compactMetric("湿度", formatPercent(view.weather.humidity), view.theme),
-            compactMetric("风速", formatWind(view.weather.windSpeed), view.theme)
+            signalMetric("体感", compactFeelsLike(view.weather), view.theme, { valueSize: 11 }),
+            signalMetric("湿度", formatPercent(view.weather.humidity), view.theme, { valueSize: 11 }),
+            signalMetric("风速", formatWind(view.weather.windSpeed), view.theme, { valueSize: 10, valueScale: 0.54 })
         ], { gap: 6 }),
         sp(),
         footer(status, view.theme)
-    ], nextRefresh, view.theme, view.openUrl, [14, 14, 11, 14]);
+    ], nextRefresh, view.theme, view.openUrl, [13, 13, 11, 13]);
 }
 
 function buildMedium(view, status, nextRefresh) {
@@ -366,30 +364,24 @@ function buildMedium(view, status, nextRefresh) {
         sp(10),
         hstack([
             vstack([
-                panel([
-                    txt(view.location.name, 10, "semibold", view.theme.accent, { maxLines: 1, minScale: 0.7 }),
-                    sp(5),
-                    txt("像《" + view.artwork.title + "》", 21, "bold", "#FFFFFF", { maxLines: 2, minScale: 0.56 }),
-                    sp(4),
-                    txt(view.artworkMeta, 11, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.72 }),
-                    sp(8),
-                    hstack([
-                        tag(view.mood.tag, view.theme.accent, view.theme.accent + "22", 9),
-                        infoChip("天气", view.weatherSummary, view.theme)
-                    ], { gap: 6, alignItems: "center" })
-                ], view.theme, { padding: [12, 12, 12, 12], borderRadius: 18, backgroundColor: view.theme.cardStrong }),
+                heroCard(view, status, {
+                    titleSize: 22,
+                    titleScale: 0.58,
+                    noteLines: 2,
+                    reasonLines: 2,
+                    padding: [13, 13, 13, 13]
+                }),
                 sp(8),
-                panel([
-                    txt("匹配理由", 9, "semibold", view.theme.textSubtle),
-                    sp(5),
-                    txt(view.reason, 10, "regular", view.theme.textMuted, { maxLines: 4, minScale: 0.72 })
-                ], view.theme, { padding: [10, 12, 10, 12], borderRadius: 16 })
-            ], { gap: 0, flex: 1.08 }),
+                hstack([
+                    signalMetric("体感", compactFeelsLike(view.weather), view.theme),
+                    signalMetric("云层", cloudTone(view.weather.cloud), view.theme)
+                ], { gap: 6 })
+            ], { gap: 0, flex: 1.06 }),
             vstack([
-                artworkPane(view, null, 98),
+                weatherPanel(view, true),
                 sp(8),
-                weatherPanel(view, true)
-            ], { gap: 0, flex: 0.92 })
+                artworkPane(view, null, 94)
+            ], { gap: 0, flex: 0.94 })
         ], { gap: 10, alignItems: "start" }),
         sp(),
         footer(status, view.theme)
@@ -397,48 +389,33 @@ function buildMedium(view, status, nextRefresh) {
 }
 
 function buildLarge(view, status, nextRefresh) {
-    var artworkCard = artworkPane(view, null, 124);
+    var artworkCard = artworkPane(view, null, 132);
     artworkCard.flex = 1;
     return shell([
         header(view, true),
         sp(10),
         hstack([
-            panel([
-                txt(view.location.name, 10, "semibold", view.theme.accent, { maxLines: 1, minScale: 0.72 }),
-                sp(6),
-                txt("像《" + view.artwork.title + "》", 28, "bold", "#FFFFFF", { maxLines: 2, minScale: 0.58 }),
-                sp(4),
-                txt(view.artworkMeta, 12, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.72 }),
-                sp(9),
-                hstack([
-                    tag(view.mood.tag, view.theme.accent, view.theme.accent + "22", 9),
-                    infoChip("天气", view.weatherSummary, view.theme),
-                    infoChip("风格", view.styleText, view.theme)
-                ], { gap: 6, alignItems: "center" })
-            ], view.theme, { flex: 1.1, padding: [14, 14, 14, 14], borderRadius: 20, backgroundColor: view.theme.cardStrong }),
+            heroCard(view, status, {
+                flex: 1.12,
+                titleSize: 28,
+                titleScale: 0.60,
+                noteLines: 3,
+                reasonLines: 3,
+                padding: [15, 16, 15, 16]
+            }),
             weatherPanel(view, false)
         ], { gap: 10, alignItems: "start" }),
         sp(10),
         hstack([
             artworkCard,
-            panel([
-                txt("城市判断", 9, "semibold", view.theme.textSubtle),
-                sp(6),
-                txt(view.reason, 11, "regular", "#FFFFFF", { maxLines: 5, minScale: 0.76 }),
-                sp(10),
-                txt("情绪标签 · " + view.mood.tag, 10, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.72 }),
-                sp(4),
-                txt("作品风格 · " + view.styleText, 10, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.72 }),
-                sp(4),
-                txt("空气状态 · " + cloudTone(view.weather.cloud), 10, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.72 })
-            ], view.theme, { flex: 1, padding: [12, 14, 12, 14], borderRadius: 18 })
+            insightPanel(view)
         ], { gap: 10, alignItems: "start" }),
         sp(10),
         hstack([
-            compactMetric("湿度", formatPercent(view.weather.humidity), view.theme),
-            compactMetric("风速", formatWind(view.weather.windSpeed), view.theme),
-            compactMetric("降水", formatPrecip(view.weather.precip), view.theme),
-            compactMetric("云量", cloudTone(view.weather.cloud), view.theme)
+            signalMetric("湿度", formatPercent(view.weather.humidity), view.theme, { valueSize: 13 }),
+            signalMetric("风速", formatWind(view.weather.windSpeed), view.theme, { valueSize: 12, valueScale: 0.62 }),
+            signalMetric("降水", formatPrecip(view.weather.precip), view.theme, { valueSize: 12, valueScale: 0.62 }),
+            signalMetric("云层", cloudTone(view.weather.cloud), view.theme, { valueSize: 13 })
         ], { gap: 6 }),
         sp(),
         footer(status, view.theme)
@@ -451,7 +428,7 @@ function buildCircular(view, status, nextRefresh) {
         refreshAfter: nextRefresh,
         url: view.openUrl || undefined,
         gap: 2,
-        children: [sp(), icon(view.theme.icon, 16, view.theme.accent), txt(shortMood(view.mood.tag), 11, "bold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }), txt(status === "live" ? "live" : "cache", 8, "medium", view.theme.textSubtle), sp()]
+        children: [sp(), icon(view.theme.icon, 16, view.theme.accent), txt(shortMood(view.mood.tag), 11, "bold", "#FFFFFF", { minScale: 0.6, maxLines: 1 }), txt(statusLabel(status), 8, "medium", view.theme.textSubtle), sp()]
     };
 }
 
@@ -460,11 +437,11 @@ function buildRectangular(view, status, nextRefresh) {
         type: "widget",
         refreshAfter: nextRefresh,
         url: view.openUrl || undefined,
-        gap: 3,
+        gap: 4,
         children: [
-            hstack([icon(view.theme.icon, 10, view.theme.accent), txt(view.location.name, 10, "medium", "rgba(255,255,255,0.72)"), sp(), txt(view.weatherSummary, 9, "medium", "rgba(255,255,255,0.55)", { maxLines: 1, minScale: 0.7 })], { gap: 4 }),
+            hstack([icon(view.theme.icon, 10, view.theme.accent), txt(view.location.name, 10, "medium", "rgba(255,255,255,0.72)"), sp(), tag(shortMood(view.mood.tag), view.theme.accent, view.theme.accentSoft, 8)], { gap: 4 }),
             txt("像《" + view.artwork.title + "》", 12, "bold", "#FFFFFF", { maxLines: 1, minScale: 0.7 }),
-            txt(view.mood.tag + " · " + (status === "live" ? "live" : "cached"), 10, "medium", "rgba(255,255,255,0.55)", { maxLines: 1, minScale: 0.7 })
+            txt(view.weather.text + " · " + formatTemp(view.weather.temp) + " · " + statusLabel(status), 9, "medium", "rgba(255,255,255,0.55)", { maxLines: 1, minScale: 0.7 })
         ]
     };
 }
@@ -474,7 +451,7 @@ function buildInline(view, status, nextRefresh) {
         type: "widget",
         refreshAfter: nextRefresh,
         url: view.openUrl || undefined,
-        children: [icon(view.theme.icon, 12, view.theme.accent), txt(" " + view.location.name + "像《" + truncateText(view.artwork.title, 16) + "》", 12, "medium", "#FFFFFF", { maxLines: 1, minScale: 0.55 }), txt(" · " + (status === "live" ? "live" : "cached"), 11, "medium", view.theme.textSubtle)]
+        children: [icon(view.theme.icon, 12, view.theme.accent), txt(" " + view.location.name + "像《" + truncateText(view.artwork.title, 14) + "》", 12, "medium", "#FFFFFF", { maxLines: 1, minScale: 0.55 }), txt(" · " + shortMood(view.mood.tag), 11, "medium", view.theme.textSubtle)]
     };
 }
 
@@ -491,112 +468,337 @@ function shell(children, nextRefresh, theme, url, padding) {
 }
 
 function header(view, showTime) {
-    var children = [icon(view.theme.icon, 14, view.theme.accent), txt(view.title, 12, "bold", view.theme.accent, { maxLines: 1, minScale: 0.6 }), sp(), txt(view.location.name, 10, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.7 })];
-    if (showTime) children.push(sp(6), { type: "date", date: new Date().toISOString(), format: "time", font: { size: 9, weight: "medium" }, textColor: view.theme.textSubtle });
-    return hstack(children, { gap: 5, alignItems: "center" });
+    var children = [
+        accentOrb(view.theme, 24),
+        vstack([
+            txt(view.title, 11, "bold", view.theme.accent, { maxLines: 1, minScale: 0.62 }),
+            txt(view.location.name + " · " + shortMood(view.mood.tag), 9, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.72 })
+        ], { gap: 1, flex: 1 })
+    ];
+    if (showTime) {
+        children.push(hstack([
+            icon("clock", 8, view.theme.accent),
+            { type: "date", date: new Date().toISOString(), format: "time", font: { size: 9, weight: "medium" }, textColor: view.theme.textSubtle }
+        ], {
+            gap: 4,
+            padding: [4, 8, 4, 8],
+            backgroundColor: view.theme.cardSoft,
+            borderRadius: 99,
+            borderWidth: 1,
+            borderColor: view.theme.hairline
+        }));
+    }
+    return hstack(children, { gap: 8, alignItems: "center" });
+}
+
+function heroCard(view, status, opts) {
+    opts = opts || {};
+    var children = [
+        hstack([
+            sectionLabel(opts.compact ? "CITY PALETTE" : "CITY / PAINTING", view.theme),
+            sp(),
+            statusTag(status, view.theme)
+        ], { gap: 6, alignItems: "center" }),
+        sp(opts.compact ? 8 : 10),
+        hstack([
+            accentOrb(view.theme, opts.compact ? 34 : 40),
+            vstack([
+                txt(view.location.name, opts.compact ? 10 : 11, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.72 }),
+                txt(view.weatherSummary, 10, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.72 }),
+                txt(view.detailLine, 9, "medium", view.theme.textSubtle, { maxLines: opts.compact ? 1 : 2, minScale: 0.72 })
+            ], { gap: 3, flex: 1 })
+        ], { gap: 10, alignItems: "center" }),
+        sp(opts.compact ? 9 : 12),
+        txt("像《" + view.artwork.title + "》", opts.titleSize || 24, "bold", "#FFFFFF", {
+            maxLines: opts.titleLines || 2,
+            minScale: opts.titleScale || 0.58
+        }),
+        sp(4),
+        txt(view.artworkMeta, opts.compact ? 10 : 11, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.72 }),
+        sp(opts.compact ? 8 : 10),
+        txt(view.artworkNote, 10, "regular", opts.compact ? view.theme.textMuted : "#FFFFFF", {
+            maxLines: opts.noteLines || 2,
+            minScale: 0.72
+        }),
+        sp(10),
+        hstack([
+            tag(view.mood.tag, view.theme.accent, view.theme.accentSoft, 8),
+            tag(view.styleText, "#FFFFFF", view.theme.cardSoft, 8)
+        ], { gap: 6, alignItems: "center" })
+    ];
+
+    if (opts.reasonLines) {
+        children.push(
+            sp(10),
+            sectionLabel("WHY THIS", view.theme),
+            sp(6),
+            txt(truncateText(view.reason, opts.reasonLines > 2 ? 120 : 76), 10, "regular", view.theme.textMuted, {
+                maxLines: opts.reasonLines,
+                minScale: 0.74
+            })
+        );
+    }
+
+    return panel(children, view.theme, {
+        flex: opts.flex,
+        padding: opts.padding || [13, 14, 13, 14],
+        borderRadius: opts.compact ? 18 : 22,
+        backgroundColor: view.theme.cardStrong,
+        backgroundGradient: linearGradient([
+            colorWithAlpha(view.theme.accent, opts.compact ? 0.22 : 0.18),
+            colorWithAlpha(view.theme.accent, 0.08),
+            view.theme.card
+        ]),
+        borderColor: view.theme.hairlineStrong,
+        shadowColor: view.theme.accentGlow,
+        shadowRadius: opts.compact ? 14 : 18,
+        shadowOffset: { x: 0, y: 8 }
+    });
 }
 
 function artworkPane(view, width, height) {
     var card = panel([], view.theme, {
         height: height,
-        borderRadius: 16,
-        padding: [11, 11, 11, 11],
-        backgroundColor: view.theme.cardStrong
+        borderRadius: 20,
+        padding: [12, 12, 12, 12],
+        backgroundColor: view.theme.cardStrong,
+        backgroundGradient: linearGradient([
+            view.theme.cardStrong,
+            colorWithAlpha(view.theme.accent, 0.10),
+            view.theme.cardSoft
+        ]),
+        borderColor: view.theme.hairlineStrong
     });
     if (isFinite(width)) card.width = width;
 
+    var contentOptions = { gap: 0, alignItems: "start" };
+    if (isFinite(height)) contentOptions.height = Math.max(height - 24, 0);
+
     card.children = [vstack([
-        txt("作品卡", 9, "semibold", view.theme.textSubtle),
+        hstack([
+            sectionLabel("ART INDEX", view.theme),
+            sp(),
+            tag(view.styleText, view.theme.accent, view.theme.accentSoft, 8)
+        ], { gap: 6, alignItems: "center" }),
         sp(6),
         txt("《" + view.artwork.title + "》", 14, "bold", "#FFFFFF", { maxLines: 2, minScale: 0.58 }),
         sp(4),
-        txt(view.artwork.note || "画面情绪与当下天气接近。", 10, "regular", view.theme.textMuted, { maxLines: 3, minScale: 0.72 }),
+        txt(view.artworkNote, 10, "regular", view.theme.textMuted, { maxLines: isFinite(height) && height <= 100 ? 2 : 3, minScale: 0.72 }),
         sp(),
-        hstack([
-            vstack([
-                txt(view.artwork.artist, 10, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.72 }),
-                txt(view.artwork.objectDate || "馆藏信息", 9, "medium", view.theme.textSubtle, { maxLines: 1, minScale: 0.72 })
-            ], { gap: 2, flex: 1 }),
-            tag(view.styleText, view.theme.accent, view.theme.accent + "1E", 8)
-        ], { gap: 6, alignItems: "end" })
-    ], { gap: 0, alignItems: "start", height: height - 22 })];
+        detailRow("作者", view.artwork.artist, view.theme),
+        sp(4),
+        detailRow("年代", view.artwork.objectDate || "馆藏信息", view.theme)
+    ], contentOptions)];
 
     return card;
 }
 
 function weatherPanel(view, compact) {
-    return panel([
-        txt(compact ? "天气切片" : "天气概览", 9, "semibold", view.theme.textSubtle),
-        sp(5),
-        txt(view.weatherSummary, compact ? 15 : 16, "bold", "#FFFFFF", { maxLines: 1, minScale: 0.72 }),
-        sp(3),
+    var children = [
+        hstack([
+            sectionLabel(compact ? "WEATHER GRID" : "ATMOSPHERE DATA", view.theme),
+            sp(),
+            tag(cloudTone(view.weather.cloud), "#FFFFFF", view.theme.cardSoft, 8)
+        ], { gap: 6, alignItems: "center" }),
+        sp(8),
+        hstack([
+            vstack([
+                txt(formatTemp(view.weather.temp), compact ? 24 : 28, "bold", "#FFFFFF", { maxLines: 1, minScale: 0.72 }),
+                txt(view.weather.text, 11, "medium", view.theme.textMuted, { maxLines: 1, minScale: 0.72 }),
+                txt("体感 " + compactFeelsLike(view.weather), 10, "medium", view.theme.textSubtle, { maxLines: 1, minScale: 0.72 })
+            ], { gap: 2, flex: 1 }),
+            accentOrb(view.theme, compact ? 34 : 38)
+        ], { gap: 8, alignItems: "center" }),
+        sp(6),
         txt(view.detailLine, 10, "medium", view.theme.textMuted, { maxLines: compact ? 2 : 1, minScale: 0.72 }),
         sp(8),
         hstack([
-            compactMetric("体感", feelsLikeText(view.weather), view.theme),
-            compactMetric("空气", cloudTone(view.weather.cloud), view.theme)
-        ], { gap: 6 }),
-        sp(6),
-        hstack([
             compactMetric("湿度", formatPercent(view.weather.humidity), view.theme),
-            compactMetric("降水", formatPrecip(view.weather.precip), view.theme)
+            compactMetric("风速", formatWind(view.weather.windSpeed), view.theme)
         ], { gap: 6 })
-    ], view.theme, {
+    ];
+
+    if (!compact) {
+        children.push(
+            sp(6),
+            hstack([
+                compactMetric("降水", formatPrecip(view.weather.precip), view.theme),
+                compactMetric("云层", cloudTone(view.weather.cloud), view.theme)
+            ], { gap: 6 })
+        );
+    }
+
+    return panel(children, view.theme, {
         flex: compact ? undefined : 0.9,
-        padding: compact ? [10, 11, 10, 11] : [12, 12, 12, 12],
-        borderRadius: compact ? 16 : 18
+        padding: compact ? [11, 12, 11, 12] : [12, 13, 12, 13],
+        borderRadius: compact ? 18 : 20,
+        backgroundColor: view.theme.card,
+        backgroundGradient: linearGradient([
+            colorWithAlpha(view.theme.accent, 0.14),
+            "rgba(255,255,255,0.04)",
+            view.theme.card
+        ]),
+        borderColor: view.theme.hairlineStrong
+    });
+}
+
+function insightPanel(view) {
+    return panel([
+        sectionLabel("CITY ANALYSIS", view.theme),
+        sp(8),
+        txt(view.reasonShort, 11, "regular", "#FFFFFF", { maxLines: 5, minScale: 0.76 }),
+        sp(10),
+        detailRow("情绪标签", view.mood.tag, view.theme),
+        sp(5),
+        detailRow("作品风格", view.styleText, view.theme),
+        sp(5),
+        detailRow("空气状态", cloudTone(view.weather.cloud), view.theme),
+        sp(5),
+        detailRow("馆藏线索", truncateText(view.artwork.medium || view.artwork.department || "馆藏作品", 20), view.theme)
+    ], view.theme, {
+        flex: 1,
+        padding: [12, 14, 12, 14],
+        borderRadius: 20,
+        backgroundColor: view.theme.card,
+        backgroundGradient: linearGradient([
+            colorWithAlpha(view.theme.accent, 0.10),
+            view.theme.card,
+            view.theme.cardSoft
+        ])
     });
 }
 
 function infoStrip(view, compact) {
-    if (compact) {
-        return hstack([
-            infoChip("空气", cloudTone(view.weather.cloud), view.theme),
-            infoChip("湿度", formatPercent(view.weather.humidity), view.theme),
-            infoChip("风速", formatWind(view.weather.windSpeed), view.theme)
-        ], { gap: 6 });
-    }
-    return hstack([
+    var chips = [
         infoChip("空气", cloudTone(view.weather.cloud), view.theme),
         infoChip("湿度", formatPercent(view.weather.humidity), view.theme),
         infoChip("风速", formatWind(view.weather.windSpeed), view.theme)
-    ], { gap: 6 });
+    ];
+    if (!compact) chips.push(infoChip("降水", formatPrecip(view.weather.precip), view.theme));
+    return hstack(chips, { gap: 6 });
 }
 
 function metricCard(label, value, theme) {
-    return vstack([txt(label, 9, "medium", theme.textSubtle), txt(value, 12, "bold", "#FFFFFF", { minScale: 0.7, maxLines: 1 })], { flex: 1, gap: 2, padding: [8, 10, 8, 10], backgroundColor: theme.card, borderRadius: 10 });
+    return signalMetric(label, value, theme);
 }
 
 function compactMetric(label, value, theme) {
+    return signalMetric(label, value, theme, { valueSize: 11, valueScale: 0.60 });
+}
+
+function signalMetric(label, value, theme, opts) {
+    opts = opts || {};
     return vstack([
-        txt(label, 9, "medium", theme.textSubtle),
-        txt(value, 12, "bold", "#FFFFFF", { minScale: 0.7, maxLines: 1 })
+        txt(label, 8, "medium", theme.textSubtle),
+        sp(3),
+        txt(value, opts.valueSize || 12, "bold", "#FFFFFF", {
+            minScale: opts.valueScale || 0.70,
+            maxLines: 1
+        })
     ], {
-        flex: 1,
+        flex: opts.flex == null ? 1 : opts.flex,
         gap: 2,
-        padding: [8, 10, 8, 10],
+        padding: opts.padding || [8, 10, 8, 10],
         backgroundColor: theme.cardSoft,
-        borderRadius: 12,
+        backgroundGradient: linearGradient([
+            colorWithAlpha(theme.accent, 0.10),
+            theme.cardSoft
+        ], { x: 0, y: 0 }, { x: 1, y: 1 }),
+        borderRadius: opts.borderRadius || 12,
         borderWidth: 1,
         borderColor: theme.hairline
     });
 }
 
+function sectionLabel(text, theme) {
+    return hstack([
+        microBar(theme),
+        txt(text, 8, "semibold", theme.textSubtle, { maxLines: 1, minScale: 0.72 })
+    ], { gap: 6, alignItems: "center" });
+}
+
+function accentOrb(theme, size) {
+    return vstack([sp(), icon(theme.icon, Math.max(12, Math.round(size * 0.4)), theme.accent), sp()], {
+        width: size,
+        height: size,
+        alignItems: "center",
+        borderRadius: size / 2,
+        borderWidth: 1,
+        borderColor: theme.hairlineStrong,
+        backgroundColor: theme.cardStrong,
+        backgroundGradient: linearGradient([
+            colorWithAlpha(theme.accent, 0.34),
+            colorWithAlpha(theme.accent, 0.10),
+            "rgba(255,255,255,0.03)"
+        ]),
+        shadowColor: theme.accentGlow,
+        shadowRadius: Math.round(size * 0.45),
+        shadowOffset: { x: 0, y: 6 }
+    });
+}
+
+function microBar(theme) {
+    return {
+        type: "stack",
+        width: 16,
+        height: 4,
+        borderRadius: 99,
+        backgroundGradient: linearGradient([
+            theme.accent,
+            colorWithAlpha(theme.accent, 0.22)
+        ], { x: 0, y: 0.5 }, { x: 1, y: 0.5 })
+    };
+}
+
 function infoChip(label, value, theme) {
-    return hstack([txt(label, 9, "medium", theme.textSubtle), txt(value, 10, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.7 })], { gap: 4, padding: [4, 8, 4, 8], backgroundColor: theme.card, borderRadius: 8 });
+    return hstack([
+        txt(label, 8, "medium", theme.textSubtle),
+        txt(value, 10, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.68 })
+    ], {
+        gap: 4,
+        padding: [4, 8, 4, 8],
+        backgroundColor: theme.cardSoft,
+        borderRadius: 99,
+        borderWidth: 1,
+        borderColor: theme.hairline
+    });
+}
+
+function detailRow(label, value, theme) {
+    return hstack([
+        txt(label, 9, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.72 }),
+        sp(),
+        txt(value, 10, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.64, textAlign: "right" })
+    ], { gap: 8, alignItems: "center" });
 }
 
 function footer(status, theme) {
-    return hstack([icon("clock.arrow.circlepath", 8, theme.textSubtle), { type: "date", date: new Date().toISOString(), format: "relative", font: { size: 9, weight: "medium" }, textColor: theme.textSubtle }, sp(), statusTag(status, theme)], { gap: 4, alignItems: "center" });
+    return hstack([
+        hstack([
+            icon("clock.arrow.circlepath", 8, theme.textSubtle),
+            { type: "date", date: new Date().toISOString(), format: "relative", font: { size: 9, weight: "medium" }, textColor: theme.textSubtle }
+        ], { gap: 4, flex: 1, alignItems: "center" }),
+        statusTag(status, theme)
+    ], { gap: 6, alignItems: "center" });
 }
 
 function tag(text, color, bg, size) {
-    return hstack([txt(text, size || 9, "semibold", color, { maxLines: 1, minScale: 0.6 })], { padding: [2, 6, 2, 6], backgroundColor: bg, borderRadius: 6 });
+    return hstack([txt(text, size || 9, "semibold", color, { maxLines: 1, minScale: 0.55 })], {
+        padding: [3, 7, 3, 7],
+        backgroundColor: bg,
+        borderRadius: 99,
+        borderWidth: 1,
+        borderColor: colorWithAlpha(color, 0.28)
+    });
 }
 
 function statusTag(status, theme) {
     var isLive = status === "live";
-    return tag(isLive ? "实时" : "缓存", isLive ? "#10B981" : "#F59E0B", isLive ? "rgba(16,185,129,0.16)" : "rgba(245,158,11,0.16)", 8);
+    return tag(statusLabel(status), isLive ? "#10B981" : "#F59E0B", isLive ? "rgba(16,185,129,0.16)" : "rgba(245,158,11,0.16)", 8);
+}
+
+function statusLabel(status) {
+    return status === "live" ? "实时" : "缓存";
 }
 
 function panel(children, theme, opts) {
@@ -607,14 +809,58 @@ function panel(children, theme, opts) {
         children: children,
         padding: [10, 12, 10, 12],
         backgroundColor: theme.card,
-        borderRadius: 14,
+        borderRadius: 16,
         borderWidth: 1,
-        borderColor: theme.hairline
+        borderColor: theme.hairline,
+        shadowColor: "rgba(0,0,0,0.18)",
+        shadowRadius: 12,
+        shadowOffset: { x: 0, y: 6 }
     };
     if (opts) {
         for (var k in opts) if (opts[k] !== undefined) el[k] = opts[k];
     }
     return el;
+}
+
+function linearGradient(colors, startPoint, endPoint) {
+    return {
+        type: "linear",
+        colors: colors,
+        startPoint: startPoint || { x: 0, y: 0 },
+        endPoint: endPoint || { x: 1, y: 1 }
+    };
+}
+
+function colorWithAlpha(color, alpha) {
+    var str = String(color || "").trim();
+    var opacity = clampUnit(alpha);
+    var hex = str.match(/^#([0-9a-f]{6}|[0-9a-f]{8})$/i);
+    if (hex) {
+        var value = hex[1].slice(0, 6);
+        var r = parseInt(value.slice(0, 2), 16);
+        var g = parseInt(value.slice(2, 4), 16);
+        var b = parseInt(value.slice(4, 6), 16);
+        return "rgba(" + r + ", " + g + ", " + b + ", " + trimOpacity(opacity) + ")";
+    }
+
+    var rgba = str.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([0-9.]+))?\s*\)$/i);
+    if (rgba) {
+        return "rgba(" + rgba[1] + ", " + rgba[2] + ", " + rgba[3] + ", " + trimOpacity(opacity) + ")";
+    }
+
+    return str;
+}
+
+function clampUnit(val) {
+    var n = parseFloat(val);
+    if (!isFinite(n)) return 1;
+    if (n < 0) return 0;
+    if (n > 1) return 1;
+    return n;
+}
+
+function trimOpacity(val) {
+    return String(Math.round(val * 1000) / 1000);
 }
 
 function errorWidget(title, msg) {
@@ -803,7 +1049,7 @@ function stableHash(text) {
 function truncateText(text, maxLen) {
     var str = String(text || "");
     if (str.length <= maxLen) return str;
-    return str.slice(0, Math.max(0, maxLen - 1)) + "…";
+    return str.slice(0, Math.max(0, maxLen - 3)) + "...";
 }
 
 function formatTemp(val) {
@@ -816,6 +1062,12 @@ function feelsLikeText(weather) {
     var feelsLike = weather ? toFloat(weather.feelsLike) : NaN;
     if (isFinite(feelsLike)) return "体感 " + formatTemp(feelsLike);
     return "体感 " + formatTemp(weather ? weather.temp : NaN);
+}
+
+function compactFeelsLike(weather) {
+    var feelsLike = weather ? toFloat(weather.feelsLike) : NaN;
+    if (isFinite(feelsLike)) return formatTemp(feelsLike);
+    return formatTemp(weather ? weather.temp : NaN);
 }
 
 function formatWind(val) {
