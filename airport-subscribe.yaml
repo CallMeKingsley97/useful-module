@@ -1,0 +1,23 @@
+name: "机场订阅洞察"
+description: "监控多个机场订阅的流量使用率、剩余流量与到期时间，并以玻璃拟态卡片展示重点风险"
+author: "kingsley"
+
+scriptings:
+  - generic:
+      name: "airport-subscribe"
+      script_url: "https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/airport-subscribe.js"
+      timeout: 20
+      update_interval: 86400
+
+widgets:
+  - name: "机场订阅洞察"
+    script_name: "airport-subscribe"
+    env:
+      TITLE: "机场订阅洞察"
+      REFRESH_MINUTES: "30"
+      TIMEOUT_MS: "10000"
+      HIDE_SENSITIVE: "false"
+      INSECURE_TLS: "false"
+      ALLOW_CIRCULAR: "true"
+      SUBSCRIPTIONS_JSON: >-
+        [{"name":"Airport A","url":"https://sub.example.com/link/abc?token=xxx","siteUrl":"https://airport-a.example.com","note":"主力线路"},{"name":"Airport B","url":"https://panel.example.net/sub/def?token=yyy","siteUrl":"https://airport-b.example.net","note":"备用订阅"}]
