@@ -97,10 +97,11 @@ export default async function (ctx) {
 
 async function resolveLocation(ctx, city, lat, lon, locationNameInput, tzidInput) {
   if (isFinite(lat) && isFinite(lon)) {
+    var resolvedName = locationNameInput || await fetchReverseLocationName(ctx, lat, lon);
     return {
       latitude: lat,
       longitude: lon,
-      name: resolveCoordinateLocationName(city, locationNameInput),
+      name: resolvedName || "当前地点",
       tzid: tzidInput || "Asia/Shanghai"
     };
   }
@@ -123,11 +124,45 @@ async function resolveLocation(ctx, city, lat, lon, locationNameInput, tzidInput
   };
 }
 
-function resolveCoordinateLocationName(city, locationNameInput) {
-  // 传入坐标时，默认忽略 YAML 里为了 CITY 模式准备的城市名，避免“坐标已变但标题还写上海”
-  // 如果用户想给坐标模式自定义名称，可以把 CITY 留空，只传 LOCATION_NAME。
-  if (locationNameInput && !city) return locationNameInput;
-  return "当前地点";
+async function fetchReverseLocationName(ctx, lat, lon) {
+  try {
+    var url = "https://nominatim.openstreetmap.org/reverse"
+      + "?format=jsonv2"
+      + "&lat=" + encodeURIComponent(lat)
+      + "&lon=" + encodeURIComponent(lon)
+      + "&zoom=10"
+      + "&accept-language=zh-CN";
+    var resp = await ctx.http.get(url, {
+      headers: {
+        "User-Agent": "Egern-Widget",
+        "Accept-Language": "zh-CN"
+      },
+      timeout: 10000
+    });
+    if (resp.status !== 200) return "";
+
+    var data = await resp.json();
+    return formatReverseGeoName(data);
+  } catch (e) {
+    console.log("reverse geocoding error: " + safeMsg(e));
+    return "";
+  }
+}
+
+function formatReverseGeoName(data) {
+  if (!data || typeof data !== "object") return "";
+  var addr = data.address || {};
+
+  var city = addr.city || addr.town || addr.county || addr.state_district || addr.state || "";
+  var district = addr.suburb || addr.city_district || addr.borough || addr.village || addr.township || "";
+
+  if (city && district && city !== district) return city + " · " + district;
+  if (city) return city;
+  if (district) return district;
+
+  var display = String(data.display_name || "").trim();
+  if (!display) return "";
+  return truncate(display.split(",")[0], 24);
 }
 
 function buildLocationSignature(city, lat, lon, tzid) {
