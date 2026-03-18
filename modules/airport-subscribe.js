@@ -701,7 +701,6 @@ function subscriptionUsageBar(item, height) {
   return {
     type: "stack",
     direction: "row",
-    width: "100%",
     height: barHeight,
     borderRadius: radius,
     backgroundColor: item && item.trackColor ? item.trackColor : "rgba(255,255,255,0.08)",
@@ -720,8 +719,7 @@ function subscriptionCompactRow(item, compact) {
     txt(item.isUsable ? item.percentText : item.statusText, compact ? 9 : 10, "semibold", accent, { maxLines: 1, minScale: 0.58 })
   ], {
     gap: compact ? 4 : 5,
-    alignItems: "center",
-    width: "100%"
+    alignItems: "center"
   });
 
   var children = [titleRow];
@@ -743,8 +741,7 @@ function subscriptionCompactRow(item, compact) {
   return vstack(children, {
     url: item.openUrl || undefined,
     gap: compact ? 3 : 4,
-    alignItems: "start",
-    width: "100%"
+    alignItems: "start"
   });
 }
 
@@ -758,7 +755,7 @@ function subscriptionExpandedRow(item) {
       tagDot(accent),
       txt(item.name, 12, "semibold", "#F7FAFF", { flex: 1, maxLines: 1, minScale: 0.68 }),
       txt(item.isUsable ? item.percentText : item.statusText, 12, "bold", accent, { maxLines: 1, minScale: 0.68 })
-    ], { gap: 6, alignItems: "center", width: "100%" })
+    ], { gap: 6, alignItems: "center" })
   ];
 
   if (item.isUsable) {
@@ -769,8 +766,7 @@ function subscriptionExpandedRow(item) {
   return vstack(children, {
     url: item.openUrl || undefined,
     gap: item.isUsable ? 6 : 4,
-    alignItems: "start",
-    width: "100%"
+    alignItems: "start"
   });
 }
 

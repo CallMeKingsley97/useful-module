@@ -281,6 +281,7 @@ node --input-type=module -e 'import widget from "./modules/airport-subscribe.js"
 - `subscriptionExpandedRow(item)` 升级为信息 + 进度条 + 明细结构
 - `systemLarge` 的主屏列表上限从 `6` 调整为 `5`，避免新增进度条后挤压
 - 锁屏尺寸 `accessoryCircular / accessoryRectangular / accessoryInline` 保持不变
+- 回归修复：移除不符合 DSL 类型约束的 `width: "100%"`，恢复为合法布局属性组合
 
 ## 11. 实际验证结果
 
@@ -290,3 +291,4 @@ node --input-type=module -e 'import widget from "./modules/airport-subscribe.js"
 2. `systemMedium` 输出中已出现高度为 `5` 的进度条节点。
 3. `systemLarge` 输出中已出现高度为 `6` 的进度条节点。
 4. 混合场景下，失败机场保留 `拉取失败` 与错误文案，未插入额外进度条。
+5. 使用用户实际传入的两机场 JSON 做本地渲染验证，`systemSmall / systemMedium / systemLarge` 均能正常返回 widget 结构。
