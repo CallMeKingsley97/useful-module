@@ -29,6 +29,7 @@ export default async function (ctx) {
   var moonStyle = normalizeMoonStyle(env.MOON_STYLE || "shaded");
   var moonView = normalizeMoonView(env.MOON_VIEW || "portrait-simple");
   var openUrl = String(env.OPEN_URL || "").trim();
+  var locationSignature = buildLocationSignature(city, lat, lon, tzid);
 
   if ((!isFinite(lat) || !isFinite(lon)) && !city) {
     return errorWidget("缺少位置", "请配置 LAT/LON，或设置 CITY");
@@ -36,7 +37,7 @@ export default async function (ctx) {
 
   var cached = loadCache(ctx);
   var now = Date.now();
-  var cacheReady = cached && cached.data;
+  var cacheReady = cached && cached.data && cached.signature === locationSignature;
   var cacheFresh = cacheReady && cached.ts && (now - cached.ts < refreshMs);
   var vm;
 
@@ -71,7 +72,7 @@ export default async function (ctx) {
         moonImage: moonImage,
         fetchedAt: new Date().toISOString()
       };
-      saveCache(ctx, { data: data, ts: now });
+      saveCache(ctx, { data: data, ts: now, signature: locationSignature });
       vm = buildViewModel(data, openUrl, showMoonImage);
     } catch (e) {
       console.log("moon astronomical fetch error: " + safeMsg(e));
@@ -99,7 +100,7 @@ async function resolveLocation(ctx, city, lat, lon, locationNameInput, tzidInput
     return {
       latitude: lat,
       longitude: lon,
-      name: locationNameInput || "当前地点",
+      name: resolveCoordinateLocationName(city, locationNameInput),
       tzid: tzidInput || "Asia/Shanghai"
     };
   }
@@ -120,6 +121,24 @@ async function resolveLocation(ctx, city, lat, lon, locationNameInput, tzidInput
     name: name,
     tzid: tzidInput || item.timezone || "Asia/Shanghai"
   };
+}
+
+function resolveCoordinateLocationName(city, locationNameInput) {
+  // 传入坐标时，默认忽略 YAML 里为了 CITY 模式准备的城市名，避免“坐标已变但标题还写上海”
+  // 如果用户想给坐标模式自定义名称，可以把 CITY 留空，只传 LOCATION_NAME。
+  if (locationNameInput && !city) return locationNameInput;
+  return "当前地点";
+}
+
+function buildLocationSignature(city, lat, lon, tzid) {
+  if (isFinite(lat) && isFinite(lon)) {
+    return "coords:" + roundCoord(lat) + "," + roundCoord(lon) + "|" + String(tzid || "");
+  }
+  return "city:" + String(city || "").trim().toLowerCase() + "|" + String(tzid || "");
+}
+
+function roundCoord(value) {
+  return Math.round(Number(value) * 10000) / 10000;
 }
 
 async function fetchAstronomicalWindows(ctx, loc) {

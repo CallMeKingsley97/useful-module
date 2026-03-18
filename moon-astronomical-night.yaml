@@ -19,8 +19,8 @@ widgets:
       # 1. 推荐直接填写 LAT / LON，最稳定
       # 2. 或只填写 CITY，脚本会通过 Open-Meteo Geocoding 自动解析经纬度
       # ----------------------------------------
-      CITY: "Shanghai"
-      LOCATION_NAME: "上海"
+      CITY: ""
+      LOCATION_NAME: ""
       LAT: ""
       LON: ""
       TZID: "Asia/Shanghai"
