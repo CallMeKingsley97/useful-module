@@ -59,7 +59,11 @@ export default async function (ctx) {
         snapshot = cached;
         source = "cached";
       } else {
-        return errorWidget("获取失败", "所有订阅都未返回可用的用量信息");
+        var errs = [];
+        for (var i = 0; i < snapshot.items.length; i++) {
+          errs.push(snapshot.items[i].name + ": " + (snapshot.items[i].error || "无信息"));
+        }
+        return errorWidget("获取失败", "所有订阅都未返回可用的用量信息。\n原因: " + errs.join(" | "));
       }
       if (source !== "cached") source = snapshot.source || "live";
     } catch (e) {
@@ -1089,12 +1093,21 @@ function normalizeUrl(url) {
 function getHeaderValue(headers, name) {
   if (!headers) return "";
   try {
-    return String(headers.get(name) || "").trim();
-  } catch (e) {
-    var direct = headers[name] || headers[String(name).toLowerCase()] || "";
-    if (Array.isArray(direct)) return String(direct[0] || "").trim();
-    return String(direct || "").trim();
+    if (typeof headers.get === "function") {
+      var val = headers.get(name);
+      if (val != null && val !== "") return String(val).trim();
+    }
+  } catch (e) {}
+
+  var lowerName = String(name).toLowerCase();
+  for (var key in headers) {
+    if (String(key).toLowerCase() === lowerName) {
+      var direct = headers[key];
+      if (Array.isArray(direct)) return String(direct[0] || "").trim();
+      return String(direct || "").trim();
+    }
   }
+  return "";
 }
 
 function formatBytes(bytes) {
