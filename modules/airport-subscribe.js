@@ -568,25 +568,17 @@ function buildSmall(vm, refreshAfter) {
 
 function buildMedium(vm, refreshAfter) {
   var focus = vm.focus;
-  var sideItems = vm.items.slice(1, 4);
-  if (sideItems.length === 0 && vm.items.length > 0) sideItems = vm.items.slice(0, 3);
+  var sideItems = vm.items.slice(1, 3);
+  if (sideItems.length === 0 && vm.items.length > 0) sideItems = vm.items.slice(0, 2);
 
   return shell([
     header(vm.title, vm.statusColor, true),
-    sp(6),
-    separator(),
-    sp(10),
+    sp(8),
     hstack([
       heroCard(focus, true),
-      vstack([
-        summaryCard(vm),
-        sp(8),
-        vstack(sideItems.map(function (item) {
-          return compactItemRow(item);
-        }), { gap: 8, alignItems: "start" })
-      ], { flex: 1, alignItems: "start" })
+      mediumAsideCard(vm, sideItems)
     ], { gap: 10, alignItems: "start" }),
-    sp(),
+    sp(8),
     footer(vm)
   ], refreshAfter);
 }
@@ -660,23 +652,28 @@ function buildInline(vm) {
 }
 
 function heroCard(item, compact) {
+  var circleSize = compact ? 60 : 78;
   return vstack([
     hstack([
       vstack([
-        txt(item.name, compact ? 14 : 15, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.72 }),
-        txt(item.statusText, 10, "medium", item.accent, { maxLines: 1, minScale: 0.72 })
+        txt(item.name, compact ? 13 : 15, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.68 }),
+        txt(item.statusText, compact ? 9 : 10, "medium", item.accent, { maxLines: 1, minScale: 0.72 })
       ], { flex: 1, gap: 2, alignItems: "start" }),
-      circularUsage(item, compact ? 70 : 78)
+      circularUsage(item, circleSize)
     ], { gap: 10, alignItems: "center" }),
-    sp(10),
+    sp(compact ? 8 : 10),
     progressBar(item, 7),
-    sp(8),
-    hstack([
-      metricBlock("用量", item.trafficText, item.accent),
-      metricBlock("到期", item.expiryText, "rgba(235,240,248,0.75)")
-    ], { gap: 8, alignItems: "start" }),
-    item.note ? sp(8) : null,
-    item.note ? txt(item.note, 10, "medium", "rgba(235,240,248,0.55)", { maxLines: compact ? 2 : 1, minScale: 0.72 }) : null
+    sp(compact ? 6 : 8),
+    compact
+      ? txt(item.trafficText, 10, "semibold", item.accent || "#F7FAFF", { maxLines: 1, minScale: 0.68 })
+      : hstack([
+        metricBlock("用量", item.trafficText, item.accent),
+        metricBlock("到期", item.expiryText, "rgba(235,240,248,0.75)")
+      ], { gap: 8, alignItems: "start" }),
+    sp(compact ? 4 : 8),
+    txt(item.expiryText, compact ? 9 : 10, "medium", "rgba(235,240,248,0.68)", { maxLines: 1, minScale: 0.72 }),
+    !compact && item.note ? sp(8) : null,
+    !compact && item.note ? txt(item.note, 10, "medium", "rgba(235,240,248,0.55)", { maxLines: 1, minScale: 0.72 }) : null
   ].filter(Boolean), {
     flex: 1,
     url: item.openUrl || undefined,
@@ -700,24 +697,54 @@ function heroCard(item, compact) {
   });
 }
 
-function summaryCard(vm) {
+function summaryCard(vm, compact) {
   return vstack([
     txt(vm.subtitle, 11, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.72 }),
-    sp(6),
+    sp(compact ? 5 : 6),
     hstack([
       miniStat("告警", String(vm.overview.alert), vm.overview.alert > 0 ? "#FF955C" : "#8AB4FF"),
       miniStat("预警", String(vm.overview.warning), vm.overview.warning > 0 ? "#F6C26A" : "#8AB4FF"),
       miniStat("可用", String(vm.overview.usable), "#67E8D6")
     ], { gap: 8, alignItems: "start" }),
-    sp(8),
-    txt(vm.remainingSummary, 10, "medium", "rgba(235,240,248,0.62)", { maxLines: 2, minScale: 0.72 })
+    sp(compact ? 6 : 8),
+    txt(vm.remainingSummary, 10, "medium", "rgba(235,240,248,0.62)", { maxLines: compact ? 1 : 2, minScale: 0.72 })
   ], {
     gap: 0,
-    padding: [12, 12, 12, 12],
+    padding: compact ? [10, 10, 10, 10] : [12, 12, 12, 12],
     backgroundColor: "rgba(255,255,255,0.045)",
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)"
+  });
+}
+
+function mediumAsideCard(vm, items) {
+  var children = [summaryCard(vm, true)];
+
+  if (items.length > 0) {
+    children.push(sp(8));
+    children.push(vstack(items.map(function (item) {
+      return compactItemLine(item);
+    }), {
+      gap: 6,
+      alignItems: "start"
+    }));
+  } else {
+    children.push(sp(8));
+    children.push(txt("暂无其他订阅需要展示", 9, "medium", "rgba(235,240,248,0.5)", {
+      maxLines: 1,
+      minScale: 0.72
+    }));
+  }
+
+  return vstack(children, {
+    flex: 1,
+    gap: 0,
+    padding: [10, 10, 10, 10],
+    backgroundColor: "rgba(255,255,255,0.035)",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)"
   });
 }
 
@@ -745,6 +772,18 @@ function compactItemRow(item) {
     borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)"
+  });
+}
+
+function compactItemLine(item) {
+  return hstack([
+    tagDot(item.accent || "#8AB4FF"),
+    txt(item.name, 10, "medium", "#F7FAFF", { flex: 1, maxLines: 1, minScale: 0.68 }),
+    txt(item.compactText, 9, "medium", item.accent || "rgba(235,240,248,0.62)", { maxLines: 1, minScale: 0.68 })
+  ], {
+    url: item.openUrl || undefined,
+    gap: 6,
+    alignItems: "center"
   });
 }
 

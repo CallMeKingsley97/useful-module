@@ -1,80 +1,103 @@
-这是一份为你量身定制的 **iOS 机场订阅监控小组件（Subscription Insight）** 需求文档。设计核心在于遵循 Apple 的 **Human Interface Guidelines (HIG)**，强调「高斯模糊、非对称美感、精细化排版」和「动态色彩」。
+# 机场订阅洞察布局修复说明
 
----
+## 1. 背景
 
-# 需求文档：机场订阅监控 iOS 小组件 (Subscription Insight)
+文件位置：
 
-## 1. 产品概述
-一款优雅的 iOS 桌面小组件，旨在帮助用户直观、实时地监控多个机场订阅的状态。它不仅是一个数据工具，更是桌面美学的一部分。
+- `modules/airport-subscribe.js`
 
----
+本次修复目标不是增加数据展示，而是解决 `systemMedium` 尺寸下的内容重叠、卡片互相挤压、底部状态区侵入主体内容的问题。
 
-## 2. 核心功能需求
+## 2. 问题定位
 
-### 2.1 数据获取与解析
-* **多订阅支持：** 用户可输入多个机场订阅链接（基于 V2Board, SSPanel 等主流面板）。
-* **静默刷新：** 利用 iOS Background Fetch 定时请求订阅链接。
-* **字段抓取：** * 从 HTTP 响应头的 `subscription-userinfo` 解析：已用上行、已用下行、总流量、过期时间。
-    * 从订阅链接解析机场名称（或允许用户自定义备注）。
+原 `systemMedium` 布局存在以下结构性问题：
 
-### 2.2 数据计算逻辑
-* **使用率计算：** $\text{使用率} = \frac{\text{已用流量}}{\text{总流量}} \times 100\%$。
-* **到期倒计时：** 计算当前日期与 `expire` 时间戳的差值，显示“XX 天后到期”。
+1. 左侧主卡本身信息密度过高。
+2. 右侧区域同时堆叠摘要卡和多条卡片列表，纵向高度接近组件极限。
+3. 主体区域底部依赖弹性 `spacer` 把 footer 顶到底部，在主体超高时更容易出现视觉挤压。
 
----
+具体表现：
 
-## 3. 视觉与 UI 设计规范 (Apple Aesthetic)
+- 主卡中的圆环、文本、指标块在有限高度内互相覆盖。
+- 右侧摘要与列表卡片发生重叠或压缩。
+- footer 文案与主体区域争抢垂直空间。
 
-### 3.1 视觉风格建议
-* **材质：** 采用 **Glassmorphism（玻璃拟态）**。在深色模式下使用半透明超薄材质，浅色模式下使用柔和的卡片色。
-* **字体：** 全程使用系统默认 **SF Pro** 字体。使用不同的字重（Semibold 用于标题，Medium 用于数据）区分层级。
-* **图标：** 统一使用 **SF Symbols 6.0**（如 `airplane.circle.fill`, `chart.bar.fill`, `calendar`）。
+## 3. 修复原则
 
-### 3.2 小组件尺寸适配
+遵循项目内 `egern-widgets` 布局规则：
 
-#### **A. 小型组件 (Small - 2x2)**
-* **设计：** 仅显示优先级最高的一个订阅。
-* **布局：** * 顶部：机场图标 + 名称。
-    * 中部：巨大的百分比数字（如 85%）+ 环形进度条（Ring Gauge）。
-    * 底部：小字显示“剩余 128GB · 12天后过期”。
+- `systemMedium` 只允许一个重型叙事卡片。
+- 另一侧必须降级为轻量辅助区，不能再堆复杂卡片。
+- 放不下时优先删减次要信息，而不是继续缩小字号硬塞。
 
-#### **B. 中型组件 (Medium - 4x2) - 对应你提供的图片增强版**
-* **布局：** 左右或上下排列 2-3 个订阅。
-* **增强细节：**
-    * **动态进度条：** 进度条不再是死板的单色，而是带有渐变色（如：从青色到蓝色的渐变）。
-    * **状态指示灯：** 流量 >90% 时，进度条颜色变为亮橘色；<10% 剩余或 3 天内过期时，文字变为红色提示。
-    * **背景：** 每个卡片背景带有极其微弱的径向渐变，增加深度感。
+## 4. 修复方案
 
----
+### 4.1 `systemMedium` 结构调整
 
-## 4. 交互设计方案
+改为固定的左右双区：
 
-* **点击跳转：** 点击对应的订阅区域，直接跳转到浏览器打开该机场官网（由用户预设官网链接）。
-* **隐私保护：** 敏感数据（如具体流量数字）在锁屏状态下可选择模糊处理或隐藏。
+- 左侧：单个主卡 `heroCard(focus, true)`
+- 右侧：单个轻量辅助卡 `mediumAsideCard(vm, sideItems)`
+- 底部：直接接 footer，不再使用弹性 `spacer`
 
----
+### 4.2 主卡内容收敛
 
-## 5. 技术实现参考（针对开发/Scriptable 用户）
+`heroCard` 在 medium 紧凑模式下做以下降级：
 
-如果你打算使用 **Scriptable** 或 **Swift/WidgetKit** 实现，请参考以下 UI 元素参数：
+- 圆环尺寸从 `70` 降到 `60`
+- 只保留主标题、状态、进度条、用量摘要、到期摘要
+- 移除 `metricBlock` 双指标块
+- 隐藏备注 `note`
 
-| 元素 | 参数建议 | 理由 |
-| :--- | :--- | :--- |
-| **Corner Radius** | 22pt | 符合 iOS 主屏幕图标圆角 |
-| **Padding** | 16pt (Standard) | 保持呼吸感，避免拥挤 |
-| **Progress Bar Height** | 6pt | 细长条比粗条更显优雅 |
-| **Opacity (Subtext)** | 0.6 | 辅助信息降噪 |
-| **Color Palette** | 系统蓝 (#007AFF), 系统绿 (#34C759) | 保持原生感 |
+### 4.3 右侧辅助区轻量化
 
----
+新增 `mediumAsideCard`：
 
-## 6. 需求草图描述 (视觉描述)
+- 顶部保留精简版 `summaryCard(vm, true)`
+- 下方最多显示 2 条单行订阅摘要 `compactItemLine`
+- 不再为每条订阅生成独立背景卡片
 
-> **想象这样一个画面：**
-> 一个半透明的磨砂玻璃卡片浮在你的壁纸上。
-> 左上角有一个精致的小飞机图标，旁边是纤细的 `AIRPORT A` 字样。
-> 下方是一个横向的渐变进度条，进度条的末端带有淡淡的发光效果。
-> 在进度条下方，左侧是 **856 GB / 1 TB**（加粗），右侧是淡灰色的 **15 Days Left**。
-> 整个界面没有多余的边框，只有光影和文字的错落。
+## 5. 布局流程图
 
----
+```mermaid
+flowchart TD
+    A["systemMedium"] --> B["Header"]
+    B --> C["双栏主体"]
+    C --> D["左侧主卡 heroCard"]
+    C --> E["右侧辅助卡 mediumAsideCard"]
+    D --> F["标题 + 状态 + 圆环"]
+    D --> G["进度条 + 用量/到期摘要"]
+    E --> H["摘要统计 summaryCard"]
+    E --> I["最多 2 条 compactItemLine"]
+    I --> J["Footer"]
+    G --> J
+```
+
+## 6. 涉及文件
+
+- `modules/airport-subscribe.js`
+- `prd/airport_subscribe.md`
+
+## 7. 验证方式
+
+### 7.1 本地结构验证
+
+执行命令：
+
+```sh
+node --input-type=module -e 'import widget from "./modules/airport-subscribe.js"; const headers = { get: (k) => k === "subscription-userinfo" ? "upload=10737418240; download=11811160064; total=137438953472; expire=1792310400" : "" }; const ctx = { widgetFamily: "systemMedium", env: { TITLE: "机场订阅洞察", SUBSCRIPTIONS_JSON: JSON.stringify([{ name: "doriya", url: "https://sub.example.com/a", siteUrl: "https://airport.example.com", note: "主力线路" }, { name: "赔钱", url: "https://sub.example.com/b", siteUrl: "https://airport.example.com" }, { name: "备用", url: "https://sub.example.com/c", siteUrl: "https://airport.example.com" }]) }, storage: { getJSON() { return null; }, setJSON() {} }, http: { head: async function () { return { status: 200, headers: headers }; }, get: async function () { return { status: 200, headers: headers }; } } }; const res = await widget(ctx); console.log(JSON.stringify(res, null, 2));'
+```
+
+预期结果：
+
+- 主体区只有一张左侧主卡和一张右侧辅助卡。
+- 右侧不再出现“摘要卡 + 多张独立列表卡”的深层堆叠。
+- footer 为自然顺序流，不依赖弹性占位顶到底部。
+
+### 7.2 人工视觉检查
+
+在 Egern 中将该组件添加到 `systemMedium`，重点检查：
+
+1. 左侧圆环是否与标题、进度条、摘要文本发生覆盖。
+2. 右侧摘要区与订阅列表是否保持清晰分层。
+3. footer 是否仍然侵入主体区域。
