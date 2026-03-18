@@ -71,6 +71,35 @@ Egern Widget DSL 没有复杂绝对定位系统，布局安全依赖内容约束
 
 详细规则见 [layout-playbook.md](./references/layout-playbook.md)。
 
+### 4.1 用户明确反感复杂视觉时，直接切到平铺模式
+
+如果用户明确表达类似诉求：
+
+- 不要花里胡哨
+- 先解决重叠
+- 改成 `github-stars.js` 那种简单结构
+- 铺平一点，别再堆卡片
+
+则主屏尺寸优先采用“平铺防重叠模式”，不要继续保留：
+
+- hero card
+- 环形进度
+- 多张摘要卡并列
+- 图像主视觉占据主体高度
+- 卡片内再嵌卡片
+
+平铺模式的默认策略：
+
+- `systemSmall`：`header + separator + 2 条紧凑行 + footer`
+- `systemMedium`：`header + separator + 平铺列表/双列平铺 + footer`
+- `systemLarge`：`header + separator + 1 条 summary + 展开列表 + footer`
+
+选择规则：
+
+- 当列表项 `<= 2` 或单项文案偏长时，`systemMedium` 优先单列平铺
+- 当列表项 `>= 3` 且字段较短时，`systemMedium` 可拆成双列平铺
+- `systemLarge` 只增加行数和一条 summary，不恢复复杂卡片层级
+
 ### 5. 优先用组件工厂减少重复
 
 在脚本里优先抽这些基础工厂函数：

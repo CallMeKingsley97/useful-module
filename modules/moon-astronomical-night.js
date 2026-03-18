@@ -418,96 +418,67 @@ function reviveDate(value) {
 
 function buildSmall(vm, title, refreshAfter) {
   return shell([
-    starfield(3),
     header(title, vm.theme.accent, false),
-    sp(6),
+    sp(4),
     separator(),
+    sp(6),
+    vstack([
+      moonFlatCompactRow("月相", vm.moonLabel + " · " + vm.illuminationPct + "%", vm.theme.accent),
+      moonFlatCompactRow("夜窗", vm.tonightWindow, "#F7FAFF")
+    ], { gap: 5, alignItems: "start" }),
     sp(8),
-    hstack([
-      moonVisual(vm, 62),
-      vstack([
-        txt(vm.moonLabel, 15, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.72 }),
-        txt("\u7167\u4eae " + vm.illuminationPct + "%", 10, "semibold", vm.theme.accent, { maxLines: 1, minScale: 0.72 }),
-        sp(3),
-        txt(vm.nightTitle, 11, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.72 })
-      ], { flex: 1, gap: 0, alignItems: "start" })
-    ], { gap: 10, alignItems: "center" }),
-    sp(8),
-    txt(vm.nightSubtitle, 10, "medium", "rgba(228,235,245,0.72)", { maxLines: 2, minScale: 0.74 }),
-    sp(),
     footer(vm)
-  ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
+  ], refreshAfter, vm.openUrl, vm.theme, [12, 14, 10, 14]);
 }
 
 function buildMedium(vm, title, refreshAfter) {
   return shell([
-    starfield(5),
     header(title, vm.theme.accent, true),
-    sp(6),
+    sp(4),
     separator(),
-    sp(10),
+    sp(6),
+    txt(vm.nightTitle + " · " + vm.nightSubtitle, 10, "medium", "rgba(228,235,245,0.72)", {
+      maxLines: 1,
+      minScale: 0.6
+    }),
+    sp(6),
     hstack([
-      moonVisualCard(vm, {
-        width: 126,
-        imageSize: 82,
-        showDate: true,
-        showIllumination: true
-      }),
       vstack([
-        txt(vm.location, 12, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.75 }),
-        txt(vm.nightTitle, 15, "bold", vm.theme.accent, { maxLines: 1, minScale: 0.72 }),
-        txt(vm.nightSubtitle, 10, "medium", "rgba(228,235,245,0.72)", { maxLines: 2, minScale: 0.75 }),
-        sp(8),
-        hstack([
-          detailCard("\u4eca\u665a\u7a97\u53e3", vm.tonightWindow),
-          detailCard("\u7eaf\u6697\u65f6\u957f", vm.darkDurationText)
-        ], { gap: 8, alignItems: "start" }),
-        sp(8),
-        detailCard(vm.moonLabel, vm.moonSummary, true)
-      ], { flex: 1, gap: 0, alignItems: "start" })
-    ], { gap: 12, alignItems: "start" }),
-    sp(),
+        moonFlatCompactRow("月相", vm.moonLabel, vm.theme.accent),
+        moonFlatCompactRow("照亮", vm.illuminationPct + "%", "#F7FAFF")
+      ], { gap: 6, flex: 1, alignItems: "start" }),
+      vstack([], { width: 1, backgroundColor: "rgba(255,255,255,0.06)" }),
+      vstack([
+        moonFlatCompactRow("夜窗", vm.tonightWindow, "#F7FAFF"),
+        moonFlatCompactRow("纯暗", vm.darkDurationText, vm.theme.accent)
+      ], { gap: 6, flex: 1, alignItems: "start" })
+    ], { gap: 8, alignItems: "start" }),
+    sp(8),
     footer(vm)
-  ], refreshAfter, vm.openUrl, vm.theme, [15, 17, 13, 17]);
+  ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
 }
 
 function buildLarge(vm, title, refreshAfter) {
   return shell([
-    starfield(7),
     header(title, vm.theme.accent, true),
     sp(6),
     separator(),
-    sp(10),
-    hstack([
-      moonVisualCard(vm, {
-        width: 148,
-        imageSize: 98,
-        showDate: true,
-        showIllumination: true
-      }),
-      vstack([
-        txt(vm.location, 12, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.75 }),
-        txt(vm.nightTitle, 17, "bold", vm.theme.accent, { maxLines: 1, minScale: 0.72 }),
-        sp(2),
-        txt(vm.moonLabel, 20, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.68 }),
-        txt(vm.moonSummary, 10, "medium", "rgba(228,235,245,0.72)", { maxLines: 2, minScale: 0.75 }),
-        sp(8),
-        txt(vm.nightSubtitle, 10, "medium", "rgba(228,235,245,0.72)", { maxLines: 2, minScale: 0.74 }),
-        sp(10),
-        hstack([
-          detailCard("\u4eca\u665a\u5929\u6587\u591c", vm.tonightWindow),
-          detailCard("\u7eaf\u6697\u65f6\u957f", vm.darkDurationText)
-        ], { gap: 8, alignItems: "start" })
-      ], { flex: 1, gap: 0, alignItems: "start" })
-    ], { gap: 14, alignItems: "start" }),
-    sp(10),
-    hstack([
-      detailCard("\u65e5\u51fa / \u65e5\u843d", vm.sunrise + " \u00b7 " + vm.sunset),
-      detailCard("\u591c\u7a7a\u8fb9\u754c", vm.astroEnd + " \u2192 " + vm.astroBegin)
-    ], { gap: 10, alignItems: "start" }),
-    sp(),
+    sp(8),
+    txt(vm.location + " · " + vm.nightTitle, 10, "medium", "rgba(228,235,245,0.72)", {
+      maxLines: 1,
+      minScale: 0.64
+    }),
+    sp(8),
+    vstack([
+      moonFlatExpandedRow("地点", vm.location, vm.phaseDate, vm.theme),
+      moonFlatExpandedRow("月相", vm.moonLabel, "\u7167\u4eae " + vm.illuminationPct + "% · " + vm.moonSummary, vm.theme),
+      moonFlatExpandedRow("今晚夜窗", vm.tonightWindow, vm.nightSubtitle, vm.theme),
+      moonFlatExpandedRow("纯暗时长", vm.darkDurationText, "边界 " + vm.astroEnd + " → " + vm.astroBegin, vm.theme),
+      moonFlatExpandedRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, null, vm.theme)
+    ], { gap: 6, alignItems: "start" }),
+    sp(8),
     footer(vm)
-  ], refreshAfter, vm.openUrl, vm.theme, [16, 18, 14, 18]);
+  ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
 }
 
 function buildCircular(vm) {
@@ -555,6 +526,40 @@ function buildInline(vm, title) {
       })
     ]
   };
+}
+
+function moonFlatDot(color) {
+  return {
+    type: "stack",
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: color || "#D8E2FF",
+    children: []
+  };
+}
+
+function moonFlatCompactRow(label, value, color) {
+  return hstack([
+    moonFlatDot(color),
+    txt(label, 10, "medium", "rgba(228,235,245,0.68)", { maxLines: 1 }),
+    vstack([
+      txt(value, 10, "semibold", color || "#F7FAFF", { maxLines: 1, minScale: 0.6, textAlign: "right" })
+    ], { flex: 1, alignItems: "end" })
+  ], { gap: 6, alignItems: "center" });
+}
+
+function moonFlatExpandedRow(label, value, detail, theme) {
+  return vstack([
+    hstack([
+      moonFlatDot(theme.accent),
+      txt(label, 10, "medium", "rgba(228,235,245,0.62)", { maxLines: 1 }),
+      vstack([
+        txt(value, 11, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.64, textAlign: "right" })
+      ], { flex: 1, alignItems: "end" })
+    ], { gap: 6, alignItems: "center" }),
+    detail ? txt(detail, 9, "medium", "rgba(228,235,245,0.52)", { maxLines: 1, minScale: 0.62 }) : null
+  ].filter(Boolean), { gap: 4, alignItems: "start" });
 }
 
 

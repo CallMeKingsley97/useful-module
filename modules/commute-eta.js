@@ -74,7 +74,7 @@ export default async function (ctx) {
     if (family === "accessoryCircular") return buildCircular(data.toWork, accent);
     if (family === "accessoryRectangular") return buildRectangular(data.toWork, accent, nowTs);
     if (family === "accessoryInline") return buildInline(data.toWork, accent);
-    if (family === "systemSmall") return buildSmall(data.toWork, title, accent, status, nextRefresh, nowTs);
+    if (family === "systemSmall") return buildSmall(data, title, accent, status, nextRefresh, nowTs);
     if (family === "systemLarge") return buildLarge(data, title, accent, status, nextRefresh, nowTs);
     return buildMedium(data, title, accent, status, nextRefresh, nowTs);
 }
@@ -143,100 +143,52 @@ async function fetchTransit(ctx, apiKey, origin, dest, city, cityd, strategy, ni
 
 // ============== UI 布局 ==============
 
-function buildSmall(r, title, accent, status, nextRefresh, nowTs) {
-    if (isTransitMode(r.mode)) {
-        var eta = formatDuration(r.duration);
-        var arrive = formatClock(nowTs + r.duration * 1000);
-        var distance = formatDistance(r.distance);
-        var walking = formatDistance(r.walkingDistance);
-        var lineText = transitLineText(r);
-
-        return shell([
-            header(title, accent, false, r.mode),
-            sp(6),
-            txt(eta, 26, "bold", "#FFFFFF", { minScale: 0.5, shadowColor: accent + "66", shadowRadius: 6 }),
-            txt("到达 " + arrive, 11, "medium", "rgba(255,255,255,0.75)"),
-            txt(lineText, 10, "medium", "rgba(255,255,255,0.6)", { maxLines: 1, minScale: 0.6 }),
-            txt(distance + " · 步行 " + walking, 10, "medium", "rgba(255,255,255,0.55)", { maxLines: 1, minScale: 0.7 }),
-            hstack([
-                tag(formatTransfers(r.transferCount), "#A7F3D0", "rgba(16,185,129,0.12)"),
-                tag(formatTransitCost(r.cost), "#93C5FD", "rgba(59,130,246,0.12)")
-            ], { gap: 6 }),
-            sp(),
-            footer(status)
-        ], nextRefresh, [14, 16, 12, 16]);
-    }
-
-    var etaDrive = formatDuration(r.duration);
-    var level = trafficLevel(r.duration, r.distance);
-    var arriveDrive = formatClock(nowTs + r.duration * 1000);
-    var distanceDrive = formatDistance(r.distance);
-    var speed = formatSpeed(r.duration, r.distance);
-    var tollText = formatTollInfo(r, true);
-    var tollColor = r.tolls > 0 ? "#FDE68A" : "#A7F3D0";
-    var tollBg = r.tolls > 0 ? "rgba(253,224,71,0.15)" : "rgba(16,185,129,0.12)";
-
+function buildSmall(data, title, accent, status, nextRefresh, nowTs) {
     return shell([
-        header(title, accent, false, r.mode),
+        header(title, accent, false, data.mode),
+        sp(4),
+        separator(),
         sp(6),
-        txt(etaDrive, 28, "bold", "#FFFFFF", { minScale: 0.5, shadowColor: accent + "66", shadowRadius: 6 }),
-        txt("到达 " + arriveDrive, 11, "medium", "rgba(255,255,255,0.75)"),
-        txt(distanceDrive + " · 均速 " + speed, 10, "medium", "rgba(255,255,255,0.6)", { maxLines: 1, minScale: 0.7 }),
-        hstack([levelTag(level), tag(tollText, tollColor, tollBg)], { gap: 6 }),
-        sp(),
+        vstack([
+            commuteCompactRow("去公司", data.toWork, accent),
+            commuteCompactRow("回家", data.toHome, accent)
+        ], { gap: 5, alignItems: "start" }),
+        sp(8),
+        footer(status)
+    ], nextRefresh, [12, 14, 10, 14]);
+}
+
+function buildMedium(data, title, accent, status, nextRefresh, nowTs) {
+    return shell([
+        header(title, accent, true, data.mode),
+        sp(4),
+        separator(),
+        sp(6),
+        txt(commuteSummaryText(data), 10, "medium", "rgba(255,255,255,0.66)", { maxLines: 1, minScale: 0.6 }),
+        sp(6),
+        vstack([
+            commuteExpandedRow("去公司", data.toWork, nowTs, accent),
+            commuteExpandedRow("回家", data.toHome, nowTs, accent)
+        ], { gap: 6, alignItems: "start" }),
+        sp(8),
         footer(status)
     ], nextRefresh, [14, 16, 12, 16]);
 }
 
-function buildMedium(data, title, accent, status, nextRefresh, nowTs) {
-    var toWork = data.toWork;
-    var toHome = data.toHome;
+function buildLarge(data, title, accent, status, nextRefresh, nowTs) {
     return shell([
         header(title, accent, true, data.mode),
         sp(6),
         separator(),
         sp(8),
-        hstack([
-            routeCard("去公司", toWork, accent, nowTs, true),
-            routeCard("回家", toHome, accent, nowTs, true)
-        ], { gap: 8, alignItems: "start" }),
-        sp(),
-        footer(status)
-    ], nextRefresh);
-}
-
-function buildLarge(data, title, accent, status, nextRefresh, nowTs) {
-    var toWork = data.toWork;
-    var toHome = data.toHome;
-    var compare = compareDuration(toWork.duration, toHome.duration);
-
-    var bannerText = "";
-    var badgeText = "";
-
-    if (isTransitMode(data.mode)) {
-        var walkingTotal = formatDistance(toWork.walkingDistance + toHome.walkingDistance);
-        var costTotal = formatMoney(toWork.cost + toHome.cost);
-        bannerText = compare + " · 票价 ¥" + costTotal;
-        badgeText = "步行 " + walkingTotal;
-    } else {
-        var avgSpeed = formatSpeedByDistanceDuration(toWork.distance + toHome.distance, toWork.duration + toHome.duration);
-        var avgText = avgSpeed === "--" ? "平均 --" : ("平均 " + avgSpeed);
-        bannerText = compare;
-        badgeText = avgText;
-    }
-
-    return shell([
-        header(title, accent, true, data.mode),
-        sp(6),
-        separator(),
+        txt(commuteSummaryText(data), 10, "medium", "rgba(255,255,255,0.66)", { maxLines: 1, minScale: 0.6 }),
         sp(8),
         vstack([
-            routeCard("去公司", toWork, accent, nowTs, false),
-            routeCard("回家", toHome, accent, nowTs, false)
-        ], { gap: 8 }),
-        sp(6),
-        infoBanner(bannerText, badgeText),
-        sp(),
+            commuteExpandedRow("去公司", data.toWork, nowTs, accent),
+            commuteExpandedRow("回家", data.toHome, nowTs, accent),
+            commuteAggregateRow(data, accent)
+        ], { gap: 6, alignItems: "start" }),
+        sp(8),
         footer(status)
     ], nextRefresh, [14, 16, 12, 16]);
 }
@@ -308,6 +260,74 @@ function buildInline(r, accent) {
             txt(" 去公司 " + etaDrive + " · " + distance + " · " + speed, 12, "medium", null, { minScale: 0.6, maxLines: 1 })
         ]
     };
+}
+
+function commuteAccentColor(r, accent) {
+    return isTransitMode(r.mode) ? accent : trafficLevel(r.duration, r.distance).color;
+}
+
+function commuteCompactRow(label, r, accent) {
+    return hstack([
+        icon(modeIcon(r.mode), 10, commuteAccentColor(r, accent)),
+        txt(label, 10, "medium", "rgba(255,255,255,0.72)", { maxLines: 1 }),
+        vstack([
+            txt(formatDuration(r.duration), 10, "semibold", commuteAccentColor(r, accent), { maxLines: 1, minScale: 0.6, textAlign: "right" })
+        ], { flex: 1, alignItems: "end" })
+    ], { gap: 6, alignItems: "center" });
+}
+
+function commuteExpandedRow(label, r, nowTs, accent) {
+    return vstack([
+        hstack([
+            icon(modeIcon(r.mode), 10, commuteAccentColor(r, accent)),
+            txt(label, 10, "medium", "rgba(255,255,255,0.62)", { maxLines: 1 }),
+            vstack([
+                txt(formatDuration(r.duration), 11, "semibold", commuteAccentColor(r, accent), { maxLines: 1, minScale: 0.62, textAlign: "right" })
+            ], { flex: 1, alignItems: "end" })
+        ], { gap: 6, alignItems: "center" }),
+        txt(commuteDetailText(r, nowTs), 10, "medium", "rgba(255,255,255,0.58)", { maxLines: 1, minScale: 0.58 })
+    ], { gap: 4, alignItems: "start" });
+}
+
+function commuteAggregateRow(data, accent) {
+    return vstack([
+        hstack([
+            icon("arrow.left.arrow.right", 10, accent),
+            txt("往返综合", 10, "medium", "rgba(255,255,255,0.62)", { maxLines: 1 }),
+            vstack([
+                txt(commuteAggregateValue(data), 11, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.6, textAlign: "right" })
+            ], { flex: 1, alignItems: "end" })
+        ], { gap: 6, alignItems: "center" }),
+        txt(commuteAggregateDetail(data), 10, "medium", "rgba(255,255,255,0.58)", { maxLines: 1, minScale: 0.58 })
+    ], { gap: 4, alignItems: "start" });
+}
+
+function commuteSummaryText(data) {
+    if (isTransitMode(data.mode)) {
+        return compareDuration(data.toWork.duration, data.toHome.duration) + " · 票价 ¥" + formatMoney(data.toWork.cost + data.toHome.cost);
+    }
+    var avgSpeed = formatSpeedByDistanceDuration(data.toWork.distance + data.toHome.distance, data.toWork.duration + data.toHome.duration);
+    return compareDuration(data.toWork.duration, data.toHome.duration) + " · 平均 " + avgSpeed;
+}
+
+function commuteDetailText(r, nowTs) {
+    if (isTransitMode(r.mode)) {
+        return "到达 " + formatClock(nowTs + r.duration * 1000) + " · 步行 " + formatDistance(r.walkingDistance) + " · " + formatTransitCost(r.cost);
+    }
+    return "到达 " + formatClock(nowTs + r.duration * 1000) + " · " + formatDistance(r.distance) + " · 均速 " + formatSpeed(r.duration, r.distance);
+}
+
+function commuteAggregateValue(data) {
+    return formatDuration((data.toWork.duration || 0) + (data.toHome.duration || 0));
+}
+
+function commuteAggregateDetail(data) {
+    if (isTransitMode(data.mode)) {
+        return "步行 " + formatDistance((data.toWork.walkingDistance || 0) + (data.toHome.walkingDistance || 0)) + " · 票价 ¥"
+            + formatMoney((data.toWork.cost || 0) + (data.toHome.cost || 0));
+    }
+    return "总距离 " + formatDistance((data.toWork.distance || 0) + (data.toHome.distance || 0)) + " · 收费 "
+        + formatTollInfo({ tolls: (data.toWork.tolls || 0) + (data.toHome.tolls || 0) }, true);
 }
 
 // ============== UI 组件 ==============

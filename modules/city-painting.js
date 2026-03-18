@@ -342,92 +342,55 @@ function buildReason(cityName, weather, tag, artwork) {
 function buildSmall(view, status, nextRefresh) {
     return shell([
         header(view, false),
-        sp(7),
-        heroCard(view, status, {
-            compact: true,
-            showStatus: true,
-            titleSize: 18,
-            titleLines: 2,
-            titleScale: 0.62,
-            noteLines: 0,
-            reasonLines: 0,
-            showMeta: false,
-            showWeatherDetail: false,
-            showStyleTag: false,
-            padding: [11, 11, 11, 11]
-        }),
-        sp(),
+        sp(4),
+        separator(),
+        sp(6),
+        vstack([
+            cityFlatCompactRow("作品", "《" + truncateText(view.artwork.title, 18) + "》", view.theme),
+            cityFlatCompactRow("天气", shortMood(view.mood.tag) + " · " + view.weatherSummary, view.theme)
+        ], { gap: 5, alignItems: "start" }),
+        sp(8),
         footer(status, view.theme)
-    ], nextRefresh, view.theme, view.openUrl, [12, 12, 12, 12]);
+    ], nextRefresh, view.theme, view.openUrl, [12, 14, 10, 14]);
 }
 
 function buildMedium(view, status, nextRefresh) {
     return shell([
         header(view, false),
+        sp(4),
+        separator(),
+        sp(6),
+        vstack([
+            cityFlatExpandedRow("作品", "《" + view.artwork.title + "》", view.artworkMeta, view.theme),
+            cityFlatExpandedRow("天气", view.weatherSummary, view.detailLine, view.theme),
+            cityFlatExpandedRow("气质", view.mood.tag, view.styleText, view.theme)
+        ], { gap: 6, alignItems: "start" }),
         sp(8),
-        hstack([
-            heroCard(view, status, {
-                flex: 1.16,
-                titleSize: 19,
-                titleLines: 2,
-                titleScale: 0.64,
-                noteLines: 1,
-                reasonLines: 0,
-                showMeta: false,
-                showWeatherDetail: false,
-                showStyleTag: false,
-                padding: [12, 12, 12, 12]
-            }),
-            vstack([
-                weatherSnapshotCard(view, { compact: true }),
-                sp(8),
-                hstack([
-                    compactMetric("\u6e7f\u5ea6", formatPercent(view.weather.humidity), view.theme),
-                    compactMetric("\u4e91\u5c42", cloudTone(view.weather.cloud), view.theme)
-                ], { gap: 6 }),
-                sp(8),
-                compactInsightCard(view, status)
-            ], { flex: 0.84, gap: 0 })
-        ], { gap: 10, alignItems: "start" }),
-        sp(),
         footer(status, view.theme)
-    ], nextRefresh, view.theme, view.openUrl, [12, 13, 12, 13]);
+    ], nextRefresh, view.theme, view.openUrl, [14, 16, 12, 16]);
 }
 
 function buildLarge(view, status, nextRefresh) {
     return shell([
         header(view, true),
+        sp(6),
+        separator(),
         sp(8),
-        heroCard(view, status, {
-            showStatus: true,
-            titleSize: 22,
-            titleLines: 2,
-            titleScale: 0.64,
-            noteLines: 1,
-            reasonLines: 0,
-            showMeta: true,
-            showWeatherDetail: false,
-            showStyleTag: true,
-            padding: [14, 14, 14, 14]
+        txt(view.location.name + " · " + shortMood(view.mood.tag) + " · " + view.weather.text, 10, "medium", view.theme.textMuted, {
+            maxLines: 1,
+            minScale: 0.62
         }),
         sp(8),
-        hstack([
-            artworkPane(view),
-            vstack([
-                weatherSnapshotCard(view, { compact: false }),
-                sp(8),
-                weatherNarrativeCard(view)
-            ], { flex: 1, gap: 0 })
-        ], { gap: 10, alignItems: "start" }),
+        vstack([
+            cityFlatExpandedRow("作品", "《" + view.artwork.title + "》", view.artworkMeta, view.theme),
+            cityFlatExpandedRow("天气", view.weatherSummary, view.detailLine, view.theme),
+            cityFlatExpandedRow("气质", view.mood.tag, view.styleText, view.theme),
+            cityFlatExpandedRow("作品注释", truncateText(view.artworkNote, 30), null, view.theme),
+            cityFlatExpandedRow("城市说明", truncateText(view.reasonShort, 34), null, view.theme)
+        ], { gap: 6, alignItems: "start" }),
         sp(8),
-        hstack([
-            signalMetric("\u6e7f\u5ea6", formatPercent(view.weather.humidity), view.theme, { valueSize: 12, padding: [7, 9, 7, 9] }),
-            signalMetric("\u98ce\u901f", formatWind(view.weather.windSpeed), view.theme, { valueSize: 11, valueScale: 0.62, padding: [7, 9, 7, 9] }),
-            signalMetric("\u4e91\u5c42", cloudTone(view.weather.cloud), view.theme, { valueSize: 12, padding: [7, 9, 7, 9] })
-        ], { gap: 6 }),
-        sp(),
         footer(status, view.theme)
-    ], nextRefresh, view.theme, view.openUrl, [15, 16, 12, 16]);
+    ], nextRefresh, view.theme, view.openUrl, [14, 16, 12, 16]);
 }
 
 function buildCircular(view, status, nextRefresh) {
@@ -475,6 +438,29 @@ function buildInline(view, status, nextRefresh) {
     };
 }
 
+function cityFlatCompactRow(label, value, theme) {
+    return hstack([
+        microBar(theme),
+        txt(label, 9, "medium", theme.textSubtle, { maxLines: 1 }),
+        vstack([
+            txt(value, 10, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.58, textAlign: "right" })
+        ], { flex: 1, alignItems: "end" })
+    ], { gap: 6, alignItems: "center" });
+}
+
+function cityFlatExpandedRow(label, value, detail, theme) {
+    return vstack([
+        hstack([
+            microBar(theme),
+            txt(label, 9, "medium", theme.textSubtle, { maxLines: 1 }),
+            vstack([
+                txt(value, 11, "semibold", "#FFFFFF", { maxLines: 1, minScale: 0.6, textAlign: "right" })
+            ], { flex: 1, alignItems: "end" })
+        ], { gap: 6, alignItems: "center" }),
+        detail ? txt(detail, 9, "medium", theme.textMuted, { maxLines: 1, minScale: 0.62 }) : null
+    ].filter(Boolean), { gap: 4, alignItems: "start" });
+}
+
 function shell(children, nextRefresh, theme, url, padding) {
     return {
         type: "widget",
@@ -509,6 +495,15 @@ function header(view, showTime) {
         }));
     }
     return hstack(children, { gap: 8, alignItems: "center" });
+}
+
+function separator() {
+    return {
+        type: "stack",
+        height: 1,
+        backgroundColor: "rgba(255,255,255,0.08)",
+        children: []
+    };
 }
 
 function heroCard(view, status, opts) {
