@@ -41,7 +41,7 @@ export default async function (ctx) {
   var vm;
 
   if (cacheFresh && !forceRefresh) {
-    vm = buildViewModel(cached.data, openUrl, showMoonImage);
+    vm = buildViewModel(reviveCachedData(cached.data), openUrl, showMoonImage);
   } else {
     try {
       var resolved = await resolveLocation(ctx, city, lat, lon, locationNameInput, tzid);
@@ -76,7 +76,7 @@ export default async function (ctx) {
     } catch (e) {
       console.log("moon astronomical fetch error: " + safeMsg(e));
       if (cacheReady) {
-        vm = buildViewModel(cached.data, openUrl, showMoonImage);
+        vm = buildViewModel(reviveCachedData(cached.data), openUrl, showMoonImage);
         vm.statusText = "缓存";
       } else {
         return errorWidget("加载失败", safeMsg(e));
@@ -300,6 +300,7 @@ async function downloadAsDataUri(ctx, url, mimeType) {
 }
 
 function buildViewModel(data, openUrl, showMoonImage) {
+  data = reviveCachedData(data);
   var moon = data.moon;
   var astro = data.astro;
   var theme = buildTheme(moon.phase, astro.state.key);
@@ -329,6 +330,35 @@ function buildViewModel(data, openUrl, showMoonImage) {
     openUrl: openUrl,
     statusText: "实时"
   };
+}
+
+function reviveCachedData(data) {
+  if (!data || typeof data !== "object") return data;
+  if (!data.astro || typeof data.astro !== "object") return data;
+
+  reviveSunWindow(data.astro.today);
+  reviveSunWindow(data.astro.tomorrow);
+  return data;
+}
+
+function reviveSunWindow(win) {
+  if (!win || typeof win !== "object") return;
+  win.sunrise = reviveDate(win.sunrise);
+  win.sunset = reviveDate(win.sunset);
+  win.civilTwilightBegin = reviveDate(win.civilTwilightBegin);
+  win.civilTwilightEnd = reviveDate(win.civilTwilightEnd);
+  win.nauticalTwilightBegin = reviveDate(win.nauticalTwilightBegin);
+  win.nauticalTwilightEnd = reviveDate(win.nauticalTwilightEnd);
+  win.astronomicalTwilightBegin = reviveDate(win.astronomicalTwilightBegin);
+  win.astronomicalTwilightEnd = reviveDate(win.astronomicalTwilightEnd);
+  win.solarNoon = reviveDate(win.solarNoon);
+}
+
+function reviveDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  var d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 function buildSmall(vm, title, refreshAfter) {
