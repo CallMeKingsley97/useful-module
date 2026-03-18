@@ -1,0 +1,82 @@
+name: "月相与天文夜卡"
+description: "高颜值月相与天文夜小组件；默认无需 API Key 即可运行，接入 AstronomyAPI 后可获得更漂亮的月相图"
+author: "kingsley"
+
+scriptings:
+  - generic:
+      name: "moon-astronomical-night"
+      script_url: "https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/moon-astronomical-night.js"
+      timeout: 30
+      update_interval: 86400
+
+widgets:
+  - name: "月相与天文夜卡"
+    script_name: "moon-astronomical-night"
+    env:
+      TITLE: "月相与天文夜"
+      # ----------------------------------------
+      # 位置配置（二选一）
+      # 1. 推荐直接填写 LAT / LON，最稳定
+      # 2. 或只填写 CITY，脚本会通过 Open-Meteo Geocoding 自动解析经纬度
+      # ----------------------------------------
+      CITY: "Shanghai"
+      LOCATION_NAME: "上海"
+      LAT: ""
+      LON: ""
+      TZID: "Asia/Shanghai"
+
+      # ----------------------------------------
+      # 基础模式：无需申请任何 API Key
+      #
+      # 本组件默认会使用两个公开 API：
+      # 1. Sunrise-Sunset API
+      #    文档：https://sunrise-sunset.org/api
+      #    用途：获取 sunrise / sunset / astronomical_twilight_begin / astronomical_twilight_end
+      #    是否需要申请：不需要
+      #
+      # 2. Open-Meteo Geocoding API
+      #    文档：https://open-meteo.com/en/docs/geocoding-api
+      #    用途：当只填写 CITY 时，把城市名解析成经纬度
+      #    是否需要申请：普通开放访问不需要
+      # ----------------------------------------
+
+      # ----------------------------------------
+      # 增强模式：AstronomyAPI（月相图像）
+      #
+      # 如果你想让月相卡片更漂亮，建议申请 AstronomyAPI，
+      # 它可以生成高质量的月相图片，文档如下：
+      # - Getting Started: https://docs.astronomyapi.com/
+      # - Moon Phase Studio Endpoint: https://docs.astronomyapi.com/endpoints/studio/moon-phase
+      #
+      # 申请步骤（来自官方文档）：
+      # 1. 打开 https://docs.astronomyapi.com/ ，按官方说明进入 Signup page 创建账号
+      # 2. 登录 Dashboard 后，点击 "Create Application"
+      # 3. 创建完成后会得到：
+      #    - Application ID
+      #    - Application Secret
+      # 4. 注意：Application Secret 只会显示一次，官方文档明确要求你当场保存
+      # 5. 把下面的 APP_ID / APP_SECRET 填到 Env 中即可启用高质量月相图
+      #
+      # 不填 APP_ID / APP_SECRET 也能运行，只是会退化为系统图标月相卡
+      # ----------------------------------------
+      APP_ID: ""
+      APP_SECRET: ""
+
+      # 月相图像风格（需要 AstronomyAPI 才生效）
+      # 可选：default / sketch / shaded
+      MOON_STYLE: "shaded"
+
+      # 月相图版式（需要 AstronomyAPI 才生效）
+      # 可选：portrait-simple / landscape-simple
+      MOON_VIEW: "portrait-simple"
+
+      # 是否优先显示月相图
+      SHOW_MOON_IMAGE: "true"
+
+      # 刷新策略
+      REFRESH_MINUTES: "60"
+      IMAGE_REFRESH_HOURS: "12"
+      FORCE_REFRESH: "false"
+
+      # 点击行为
+      OPEN_URL: ""
