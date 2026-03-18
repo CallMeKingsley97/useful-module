@@ -129,6 +129,13 @@ Egern Widget DSL 没有复杂绝对定位系统，布局安全依赖内容约束
 
 ### `systemMedium`
 
+Project-specific rules:
+- medium may contain only one heavy narrative card; the other side must stay light
+- avoid nested left-right layouts inside another left-right layout
+- do not place two complex cards with title, note, tags, and metrics side by side
+- fixed width is allowed only for stable visuals, never for a mixed text container
+- when medium is crowded, remove secondary copy and extra stats before shrinking text
+
 优先使用以下两种结构之一：
 
 - 左右双区：左侧主叙事，右侧辅助指标

@@ -415,15 +415,25 @@ function reviveDate(value) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+
 function buildSmall(vm, title, refreshAfter) {
   return shell([
     starfield(3),
     header(title, vm.theme.accent, false),
     sp(6),
-    moonHero(vm, true),
-    sp(6),
-    txt(vm.nightTitle, 12, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.72 }),
-    txt(vm.nightSubtitle, 10, "medium", "rgba(228,235,245,0.72)", { maxLines: 2, minScale: 0.72 }),
+    separator(),
+    sp(8),
+    hstack([
+      moonVisual(vm, 62),
+      vstack([
+        txt(vm.moonLabel, 15, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.72 }),
+        txt("\u7167\u4eae " + vm.illuminationPct + "%", 10, "semibold", vm.theme.accent, { maxLines: 1, minScale: 0.72 }),
+        sp(3),
+        txt(vm.nightTitle, 11, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.72 })
+      ], { flex: 1, gap: 0, alignItems: "start" })
+    ], { gap: 10, alignItems: "center" }),
+    sp(8),
+    txt(vm.nightSubtitle, 10, "medium", "rgba(228,235,245,0.72)", { maxLines: 2, minScale: 0.74 }),
     sp(),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
@@ -437,17 +447,23 @@ function buildMedium(vm, title, refreshAfter) {
     separator(),
     sp(10),
     hstack([
-      moonPanel(vm, false),
+      moonVisualCard(vm, {
+        width: 126,
+        imageSize: 82,
+        showDate: true,
+        showIllumination: true
+      }),
       vstack([
         txt(vm.location, 12, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.75 }),
-        txt(vm.nightTitle, 16, "bold", vm.theme.accent, { maxLines: 1, minScale: 0.72 }),
+        txt(vm.nightTitle, 15, "bold", vm.theme.accent, { maxLines: 1, minScale: 0.72 }),
         txt(vm.nightSubtitle, 10, "medium", "rgba(228,235,245,0.72)", { maxLines: 2, minScale: 0.75 }),
         sp(8),
-        infoPill("今晚窗口", vm.tonightWindow),
-        sp(6),
-        infoPill("纯暗时长", vm.darkDurationText),
-        sp(6),
-        infoPill("月面照亮", vm.illuminationPct + "%")
+        hstack([
+          detailCard("\u4eca\u665a\u7a97\u53e3", vm.tonightWindow),
+          detailCard("\u7eaf\u6697\u65f6\u957f", vm.darkDurationText)
+        ], { gap: 8, alignItems: "start" }),
+        sp(8),
+        detailCard(vm.moonLabel, vm.moonSummary, true)
       ], { flex: 1, gap: 0, alignItems: "start" })
     ], { gap: 12, alignItems: "start" }),
     sp(),
@@ -463,26 +479,32 @@ function buildLarge(vm, title, refreshAfter) {
     separator(),
     sp(10),
     hstack([
-      moonPanel(vm, false),
+      moonVisualCard(vm, {
+        width: 148,
+        imageSize: 98,
+        showDate: true,
+        showIllumination: true
+      }),
       vstack([
         txt(vm.location, 12, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.75 }),
-        txt(vm.moonLabel, 22, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.65 }),
+        txt(vm.nightTitle, 17, "bold", vm.theme.accent, { maxLines: 1, minScale: 0.72 }),
+        sp(2),
+        txt(vm.moonLabel, 20, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.68 }),
         txt(vm.moonSummary, 10, "medium", "rgba(228,235,245,0.72)", { maxLines: 2, minScale: 0.75 }),
         sp(8),
-        infoPill("今晚天文夜", vm.tonightWindow),
-        sp(6),
-        infoPill("纯暗时长", vm.darkDurationText),
-        sp(6),
-        infoPill("月面照亮", vm.illuminationPct + "%")
+        txt(vm.nightSubtitle, 10, "medium", "rgba(228,235,245,0.72)", { maxLines: 2, minScale: 0.74 }),
+        sp(10),
+        hstack([
+          detailCard("\u4eca\u665a\u5929\u6587\u591c", vm.tonightWindow),
+          detailCard("\u7eaf\u6697\u65f6\u957f", vm.darkDurationText)
+        ], { gap: 8, alignItems: "start" })
       ], { flex: 1, gap: 0, alignItems: "start" })
     ], { gap: 14, alignItems: "start" }),
     sp(10),
     hstack([
-      detailCard("日出 / 日落", vm.sunrise + " · " + vm.sunset),
-      detailCard("天文夜边界", vm.astroEnd + " → " + vm.astroBegin)
+      detailCard("\u65e5\u51fa / \u65e5\u843d", vm.sunrise + " \u00b7 " + vm.sunset),
+      detailCard("\u591c\u7a7a\u8fb9\u754c", vm.astroEnd + " \u2192 " + vm.astroBegin)
     ], { gap: 10, alignItems: "start" }),
-    sp(10),
-    detailCard(vm.nightTitle, vm.nightSubtitle, true),
     sp(),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [16, 18, 14, 18]);
@@ -535,59 +557,59 @@ function buildInline(vm, title) {
   };
 }
 
-function moonHero(vm, compact) {
+
+function moonVisual(vm, size) {
   if (vm.moonImage) {
-    return hstack([
-      {
-        type: "image",
-        src: vm.moonImage,
-        width: compact ? 66 : 90,
-        height: compact ? 66 : 90,
-        resizeMode: "contain"
-      },
-      vstack([
-        txt(vm.moonLabel, compact ? 16 : 18, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.7 }),
-        txt(vm.moonSummary, 10, "medium", "rgba(228,235,245,0.72)", { maxLines: compact ? 2 : 3, minScale: 0.72 }),
-        sp(4),
-        txt("照亮 " + vm.illuminationPct + "%", 10, "semibold", vm.theme.accent, { maxLines: 1 })
-      ], { flex: 1, gap: 0, alignItems: "start" })
-    ], { gap: 10, alignItems: "center" });
+    return {
+      type: "image",
+      src: vm.moonImage,
+      width: size,
+      height: size,
+      resizeMode: "contain"
+    };
   }
 
-  return hstack([
-    {
-      type: "stack",
-      width: compact ? 62 : 84,
-      height: compact ? 62 : 84,
-      borderRadius: 999,
-      backgroundGradient: {
-        type: "linear",
-        colors: ["rgba(248,250,255,0.95)", "rgba(184,198,229,0.82)"],
-        startPoint: { x: 0, y: 0 },
-        endPoint: { x: 1, y: 1 }
-      },
-      children: [
-        icon(vm.moonIcon, compact ? 20 : 24, "#0B1020")
-      ],
-      alignItems: "center"
+  return {
+    type: "stack",
+    width: size,
+    height: size,
+    borderRadius: 999,
+    backgroundGradient: {
+      type: "linear",
+      colors: ["rgba(248,250,255,0.95)", "rgba(184,198,229,0.82)"],
+      startPoint: { x: 0, y: 0 },
+      endPoint: { x: 1, y: 1 }
     },
-    vstack([
-      txt(vm.moonLabel, compact ? 16 : 18, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.7 }),
-      txt(vm.moonSummary, 10, "medium", "rgba(228,235,245,0.72)", { maxLines: compact ? 2 : 3, minScale: 0.72 }),
-      sp(4),
-      txt("照亮 " + vm.illuminationPct + "%", 10, "semibold", vm.theme.accent, { maxLines: 1 })
-    ], { flex: 1, gap: 0, alignItems: "start" })
-  ], { gap: 10, alignItems: "center" });
+    children: [
+      icon(vm.moonIcon, Math.max(20, Math.round(size * 0.3)), "#0B1020")
+    ],
+    alignItems: "center"
+  };
 }
 
-function moonPanel(vm, compact) {
-  return vstack([
-    moonHero(vm, compact),
+function moonVisualCard(vm, opts) {
+  opts = opts || {};
+  var children = [
+    moonVisual(vm, opts.imageSize || 84),
     sp(8),
-    txt(vm.phaseDate, 9, "medium", "rgba(228,235,245,0.5)", { maxLines: 1 })
-  ], {
-    width: compact ? 120 : 138,
+    txt(vm.moonLabel, 12, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.72, textAlign: "center" }),
+    txt(vm.moonSummary, 9, "medium", "rgba(228,235,245,0.68)", { maxLines: 2, minScale: 0.72, textAlign: "center" })
+  ];
+
+  if (opts.showIllumination !== false) {
+    children.push(sp(6));
+    children.push(txt("\u7167\u4eae " + vm.illuminationPct + "%", 9, "semibold", vm.theme.accent, { maxLines: 1, minScale: 0.72 }));
+  }
+
+  if (opts.showDate !== false) {
+    children.push(sp(4));
+    children.push(txt(vm.phaseDate, 9, "medium", "rgba(228,235,245,0.46)", { maxLines: 1, minScale: 0.72 }));
+  }
+
+  return vstack(children, {
+    width: opts.width || 132,
     padding: [12, 12, 12, 12],
+    alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.05)",
     borderRadius: 20,
     borderWidth: 1,
@@ -608,21 +630,6 @@ function detailCard(title, value, emphasize) {
     padding: [12, 12, 12, 12],
     backgroundColor: "rgba(255,255,255,0.04)",
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)"
-  });
-}
-
-function infoPill(label, value) {
-  return hstack([
-    txt(label, 10, "medium", "rgba(228,235,245,0.58)", { maxLines: 1, minScale: 0.72 }),
-    sp(),
-    txt(value, 10, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.72 })
-  ], {
-    gap: 6,
-    padding: [8, 10, 8, 10],
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderRadius: 999,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)"
   });
