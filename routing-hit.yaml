@@ -1,0 +1,54 @@
+name: "路由命中卡"
+description: "观察近 30 分钟直连、代理、拒绝结构，并以玻璃卡片展示规则命中摘要"
+author: "kingsley"
+
+scriptings:
+  - http_request:
+      name: "routing-hit-observer"
+      match: "^https?://"
+      script_url: "https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/routing-hit-observer.js"
+      timeout: 5
+      update_interval: 86400
+      env:
+        RAW_STORAGE_KEY: "routing-hit-observed-state"
+        SAMPLE_WINDOW_MINUTES: "30"
+        BUCKET_SIZE_MINUTES: "5"
+        DEFAULT_ROUTE: "ignore"
+        DEFAULT_RULE_NAME: "其他"
+        RULE_MAP_JSON: >-
+          [{"name":"OpenAI","route":"proxy","pattern":"(^|\\.)openai\\.com$","target":"host"},{"name":"YouTube","route":"proxy","pattern":"(^|\\.)youtube\\.com$|(^|\\.)googlevideo\\.com$","target":"host"},{"name":"Apple","route":"direct","pattern":"(^|\\.)apple\\.com$","target":"host"},{"name":"广告拦截","route":"reject","pattern":"(^|\\.)doubleclick\\.net$|(^|\\.)googlesyndication\\.com$","target":"host"}]
+
+  - schedule:
+      name: "routing-hit-aggregator"
+      cron: "*/5 * * * *"
+      script_url: "https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/routing-hit-aggregator.js"
+      timeout: 15
+      update_interval: 86400
+      env:
+        RAW_STORAGE_KEY: "routing-hit-observed-state"
+        STORAGE_KEY: "routing-hit-summary"
+        DATA_MODE: "auto"
+        SAMPLE_WINDOW_MINUTES: "30"
+        BUCKET_SIZE_MINUTES: "5"
+        REFRESH_MINUTES: "15"
+        MIN_SAMPLE_COUNT: "40"
+        MAX_RULES: "3"
+        REJECT_ALERT_THRESHOLD: "0.15"
+        PROBE_RULES_JSON: "[]"
+
+  - generic:
+      name: "routing-hit-widget"
+      script_url: "https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/routing-hit-widget.js"
+      timeout: 20
+      update_interval: 86400
+
+widgets:
+  - name: "路由命中卡"
+    script_name: "routing-hit-widget"
+    env:
+      TITLE: "路由命中"
+      STORAGE_KEY: "routing-hit-summary"
+      REFRESH_MINUTES: "15"
+      OPEN_URL: ""
+      MAX_RULES: "3"
+      ALLOW_CIRCULAR: "false"
