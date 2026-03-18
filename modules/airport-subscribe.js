@@ -546,60 +546,67 @@ function findLatestFetchedAt(items) {
 // ============== 布局层 ==============
 
 function buildSmall(vm, refreshAfter) {
-  var focus = vm.focus;
+  var items = vm.items.slice(0, 2);
+  if (items.length === 0) items = [vm.focus];
   return shell([
     header(vm.title, vm.statusColor, false),
+    sp(4),
+    separator(),
     sp(6),
-    hstack([
-      txt(focus.name, 12, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.72, flex: 1 }),
-      pill(focus.statusText, focus.accent || vm.statusColor)
-    ], { gap: 6, alignItems: "center" }),
-    sp(10),
-    circularUsage(focus),
-    sp(10),
-    progressBar(focus, 6),
+    vstack(items.map(function (item) {
+      return subscriptionCompactRow(item, true);
+    }), { gap: 5, alignItems: "start" }),
     sp(8),
-    txt(focus.trafficText, 11, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.7, textAlign: "center" }),
-    txt(focus.expiryText, 10, "medium", "rgba(235,240,248,0.72)", { maxLines: 1, minScale: 0.72, textAlign: "center" }),
-    sp(),
     footer(vm)
-  ], refreshAfter, [14, 16, 12, 16]);
+  ], refreshAfter, [12, 14, 10, 14]);
 }
 
 function buildMedium(vm, refreshAfter) {
-  var focus = vm.focus;
-  var sideItems = vm.items.slice(1, 3);
-  if (sideItems.length === 0 && vm.items.length > 0) sideItems = vm.items.slice(0, 2);
+  var items = vm.items.slice(0, 4);
+  if (items.length === 0) items = [vm.focus];
+  var half = Math.ceil(items.length / 2);
+  var left = items.slice(0, half);
+  var right = items.slice(half);
+  var columns = [
+    vstack(left.map(function (item) {
+      return subscriptionCompactRow(item, false);
+    }), { gap: 6, flex: 1, alignItems: "start" })
+  ];
+
+  if (right.length > 0) {
+    columns.push(vstack([], { width: 1, backgroundColor: "rgba(255,255,255,0.06)" }));
+    columns.push(vstack(right.map(function (item) {
+      return subscriptionCompactRow(item, false);
+    }), { gap: 6, flex: 1, alignItems: "start" }));
+  }
 
   return shell([
     header(vm.title, vm.statusColor, true),
-    sp(8),
-    hstack([
-      heroCard(focus, true),
-      mediumAsideCard(vm, sideItems)
-    ], { gap: 10, alignItems: "start" }),
+    sp(4),
+    separator(),
+    sp(6),
+    hstack(columns, { gap: 8, alignItems: "start" }),
     sp(8),
     footer(vm)
   ], refreshAfter);
 }
 
 function buildLarge(vm, refreshAfter) {
-  var list = vm.items.slice(0, 4);
+  var list = vm.items.slice(0, 6);
+  if (list.length === 0) list = [vm.focus];
   return shell([
     header(vm.title, vm.statusColor, true),
     sp(6),
     separator(),
-    sp(10),
-    overviewRow(vm),
-    sp(10),
-    heroCard(vm.focus, false),
-    sp(10),
+    sp(8),
+    summaryLine(vm),
+    sp(8),
     vstack(list.map(function (item) {
-      return detailItemRow(item);
-    }), { gap: 8, alignItems: "start" }),
-    sp(),
+      return subscriptionExpandedRow(item);
+    }), { gap: 6, alignItems: "start" }),
+    sp(8),
     footer(vm)
-  ], refreshAfter, [16, 18, 14, 18]);
+  ], refreshAfter, [14, 16, 12, 16]);
 }
 
 function buildCircular(vm) {
@@ -651,271 +658,41 @@ function buildInline(vm) {
   };
 }
 
-function heroCard(item, compact) {
-  var circleSize = compact ? 60 : 78;
-  return vstack([
-    hstack([
-      vstack([
-        txt(item.name, compact ? 13 : 15, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.68 }),
-        txt(item.statusText, compact ? 9 : 10, "medium", item.accent, { maxLines: 1, minScale: 0.72 })
-      ], { flex: 1, gap: 2, alignItems: "start" }),
-      circularUsage(item, circleSize)
-    ], { gap: 10, alignItems: "center" }),
-    sp(compact ? 8 : 10),
-    progressBar(item, 7),
-    sp(compact ? 6 : 8),
-    compact
-      ? txt(item.trafficText, 10, "semibold", item.accent || "#F7FAFF", { maxLines: 1, minScale: 0.68 })
-      : hstack([
-        metricBlock("用量", item.trafficText, item.accent),
-        metricBlock("到期", item.expiryText, "rgba(235,240,248,0.75)")
-      ], { gap: 8, alignItems: "start" }),
-    sp(compact ? 4 : 8),
-    txt(item.expiryText, compact ? 9 : 10, "medium", "rgba(235,240,248,0.68)", { maxLines: 1, minScale: 0.72 }),
-    !compact && item.note ? sp(8) : null,
-    !compact && item.note ? txt(item.note, 10, "medium", "rgba(235,240,248,0.55)", { maxLines: 1, minScale: 0.72 }) : null
-  ].filter(Boolean), {
-    flex: 1,
-    url: item.openUrl || undefined,
-    gap: 0,
-    padding: compact ? [12, 12, 12, 12] : [14, 14, 14, 14],
-    backgroundGradient: {
-      type: "radial",
-      colors: [
-        colorAlpha(item.accent || "#67E8D6", 0.22),
-        "rgba(255,255,255,0.04)",
-        "rgba(255,255,255,0.02)"
-      ],
-      stops: [0, 0.45, 1],
-      center: { x: 0.15, y: 0.1 },
-      startRadius: 0,
-      endRadius: 180
-    },
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.09)"
+function summaryLine(vm) {
+  return txt(vm.subtitle + " · " + vm.remainingSummary, 10, "medium", "rgba(235,240,248,0.62)", {
+    maxLines: 1,
+    minScale: 0.64
   });
 }
 
-function summaryCard(vm, compact) {
-  return vstack([
-    txt(vm.subtitle, 11, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.72 }),
-    sp(compact ? 5 : 6),
-    hstack([
-      miniStat("告警", String(vm.overview.alert), vm.overview.alert > 0 ? "#FF955C" : "#8AB4FF"),
-      miniStat("预警", String(vm.overview.warning), vm.overview.warning > 0 ? "#F6C26A" : "#8AB4FF"),
-      miniStat("可用", String(vm.overview.usable), "#67E8D6")
-    ], { gap: 8, alignItems: "start" }),
-    sp(compact ? 6 : 8),
-    txt(vm.remainingSummary, 10, "medium", "rgba(235,240,248,0.62)", { maxLines: compact ? 1 : 2, minScale: 0.72 })
-  ], {
-    gap: 0,
-    padding: compact ? [10, 10, 10, 10] : [12, 12, 12, 12],
-    backgroundColor: "rgba(255,255,255,0.045)",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)"
-  });
-}
-
-function mediumAsideCard(vm, items) {
-  var children = [summaryCard(vm, true)];
-
-  if (items.length > 0) {
-    children.push(sp(8));
-    children.push(vstack(items.map(function (item) {
-      return compactItemLine(item);
-    }), {
-      gap: 6,
-      alignItems: "start"
-    }));
-  } else {
-    children.push(sp(8));
-    children.push(txt("暂无其他订阅需要展示", 9, "medium", "rgba(235,240,248,0.5)", {
-      maxLines: 1,
-      minScale: 0.72
-    }));
-  }
-
-  return vstack(children, {
-    flex: 1,
-    gap: 0,
-    padding: [10, 10, 10, 10],
-    backgroundColor: "rgba(255,255,255,0.035)",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.07)"
-  });
-}
-
-function overviewRow(vm) {
+function subscriptionCompactRow(item, compact) {
+  var trailing = item.compactText || item.statusText || "--";
   return hstack([
-    overviewChip("总订阅", String(vm.overview.total), "#8AB4FF"),
-    overviewChip("告警", String(vm.overview.alert), vm.overview.alert > 0 ? "#FF955C" : "#67E8D6"),
-    overviewChip("已过期", String(vm.overview.expired), vm.overview.expired > 0 ? "#FF6B6B" : "#8AB4FF")
-  ], { gap: 8, alignItems: "start" });
-}
-
-function compactItemRow(item) {
-  return hstack([
-    tagDot(item.accent || "#8AB4FF"),
-    vstack([
-      txt(item.name, 11, "medium", "#F7FAFF", { maxLines: 1, minScale: 0.72 }),
-      txt(item.compactText, 9, "medium", "rgba(235,240,248,0.58)", { maxLines: 1, minScale: 0.72 })
-    ], { flex: 1, gap: 2, alignItems: "start" }),
-    txt(item.percentText, 11, "bold", item.accent || "#F7FAFF", { maxLines: 1, minScale: 0.72 })
+    tagDot(item.accent || item.statusColor || "#8AB4FF"),
+    txt(item.name, compact ? 11 : 12, "medium", "#F7FAFF", { flex: 1, maxLines: 1, minScale: 0.64 }),
+    txt(trailing, compact ? 9 : 10, "semibold", item.accent || item.statusColor || "#8AB4FF", { maxLines: 1, minScale: 0.58 })
   ], {
     url: item.openUrl || undefined,
-    gap: 6,
-    padding: [10, 10, 10, 10],
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)"
-  });
-}
-
-function compactItemLine(item) {
-  return hstack([
-    tagDot(item.accent || "#8AB4FF"),
-    txt(item.name, 10, "medium", "#F7FAFF", { flex: 1, maxLines: 1, minScale: 0.68 }),
-    txt(item.compactText, 9, "medium", item.accent || "rgba(235,240,248,0.62)", { maxLines: 1, minScale: 0.68 })
-  ], {
-    url: item.openUrl || undefined,
-    gap: 6,
+    gap: compact ? 4 : 5,
     alignItems: "center"
   });
 }
 
-function detailItemRow(item) {
-  return hstack([
-    vstack([
-      hstack([
-        txt(item.name, 12, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.72, flex: 1 }),
-        pill(item.statusText, item.accent || "#8AB4FF")
-      ], { gap: 6, alignItems: "center" }),
-      sp(4),
-      txt(item.trafficText, 10, "medium", "rgba(235,240,248,0.78)", { maxLines: 1, minScale: 0.72 }),
-      txt(item.expiryText, 10, "medium", "rgba(235,240,248,0.58)", { maxLines: 1, minScale: 0.72 })
-    ], { flex: 1, gap: 0, alignItems: "start" }),
-    vstack([
-      txt(item.percentText, 18, "bold", item.accent || "#F7FAFF", { maxLines: 1, minScale: 0.68 }),
-      txt(item.metaText, 9, "medium", "rgba(235,240,248,0.55)", { maxLines: 1, minScale: 0.72 })
-    ], { gap: 3, alignItems: "end" })
+function subscriptionExpandedRow(item) {
+  var detailText = item.isUsable
+    ? (item.trafficText + " · " + item.expiryText)
+    : item.expiryText;
+  return vstack([
+    hstack([
+      tagDot(item.accent || item.statusColor || "#8AB4FF"),
+      txt(item.name, 12, "semibold", "#F7FAFF", { flex: 1, maxLines: 1, minScale: 0.68 }),
+      txt(item.percentText, 12, "bold", item.accent || item.statusColor || "#F7FAFF", { maxLines: 1, minScale: 0.68 })
+    ], { gap: 6, alignItems: "center" }),
+    txt(detailText, 10, "medium", "rgba(235,240,248,0.62)", { maxLines: 1, minScale: 0.64 })
   ], {
     url: item.openUrl || undefined,
-    gap: 10,
-    padding: [12, 12, 12, 12],
-    backgroundGradient: {
-      type: "radial",
-      colors: [
-        colorAlpha(item.accent || "#67E8D6", 0.18),
-        "rgba(255,255,255,0.03)"
-      ],
-      center: { x: 0.1, y: 0.1 },
-      startRadius: 0,
-      endRadius: 150
-    },
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)"
-  });
-}
-
-function circularUsage(item, size) {
-  var diameter = size || 84;
-  return {
-    type: "stack",
-    width: diameter,
-    height: diameter,
-    direction: "column",
-    borderRadius: diameter / 2,
-    alignItems: "center",
-    backgroundGradient: {
-      type: "radial",
-      colors: [
-        colorAlpha(item.accent || "#67E8D6", 0.28),
-        "rgba(255,255,255,0.05)",
-        "rgba(255,255,255,0.02)"
-      ],
-      stops: [0, 0.55, 1],
-      center: { x: 0.42, y: 0.3 },
-      startRadius: 0,
-      endRadius: diameter
-    },
-    borderWidth: 1,
-    borderColor: colorAlpha(item.accent || "#67E8D6", 0.28),
-    children: [
-      sp(),
-      vstack([
-        txt(item.percentText, size ? 20 : 24, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.6, textAlign: "center" }),
-        txt("已用", 9, "medium", "rgba(235,240,248,0.58)", { maxLines: 1, textAlign: "center" })
-      ], { gap: 2, alignItems: "center" }),
-      sp()
-    ]
-  };
-}
-
-function progressBar(item, height) {
-  var usedFlex = Math.max(1, Math.round(item.progress * 100));
-  var remainFlex = Math.max(1, 100 - usedFlex);
-  return hstack([
-    {
-      type: "stack",
-      flex: usedFlex,
-      height: height,
-      borderRadius: height / 2,
-      backgroundGradient: {
-        type: "linear",
-        colors: item.gradient || ["#67E8D6", "#467AFF"],
-        startPoint: { x: 0, y: 0.5 },
-        endPoint: { x: 1, y: 0.5 }
-      },
-      children: []
-    },
-    {
-      type: "stack",
-      flex: remainFlex,
-      height: height,
-      borderRadius: height / 2,
-      backgroundColor: item.trackColor || "rgba(255,255,255,0.08)",
-      children: []
-    }
-  ], { gap: 4, alignItems: "center" });
-}
-
-function metricBlock(label, value, valueColor) {
-  return vstack([
-    txt(label, 9, "medium", "rgba(235,240,248,0.5)", { maxLines: 1 }),
-    txt(value, 11, "semibold", valueColor || "#F7FAFF", { maxLines: 2, minScale: 0.72 })
-  ], {
-    flex: 1,
-    gap: 4,
-    padding: [10, 10, 10, 10],
-    backgroundColor: "rgba(255,255,255,0.035)",
-    borderRadius: 14
-  });
-}
-
-function miniStat(label, value, color) {
-  return vstack([
-    txt(label, 9, "medium", "rgba(235,240,248,0.5)", { maxLines: 1 }),
-    txt(value, 14, "bold", color, { maxLines: 1 })
-  ], { flex: 1, gap: 3, alignItems: "start" });
-}
-
-function overviewChip(label, value, color) {
-  return vstack([
-    txt(label, 9, "medium", "rgba(235,240,248,0.5)", { maxLines: 1 }),
-    txt(value, 16, "bold", color, { maxLines: 1 })
-  ], {
-    flex: 1,
-    gap: 4,
-    padding: [10, 10, 10, 10],
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)"
+    gap: 6,
+    alignItems: "start"
   });
 }
 
@@ -936,20 +713,6 @@ function footer(vm) {
     txt(vm.footerText, 9, "medium", "rgba(235,240,248,0.48)", { maxLines: 1, minScale: 0.72, flex: 1 }),
     txt(vm.statusText + " · " + vm.refreshedText, 9, "medium", vm.footerColor, { maxLines: 1, minScale: 0.72 })
   ], { gap: 6, alignItems: "center" });
-}
-
-function pill(text, color) {
-  return {
-    type: "stack",
-    padding: [4, 8, 4, 8],
-    backgroundColor: colorAlpha(color || "#8AB4FF", 0.14),
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colorAlpha(color || "#8AB4FF", 0.2),
-    children: [
-      txt(text, 9, "semibold", color || "#8AB4FF", { maxLines: 1, minScale: 0.72 })
-    ]
-  };
 }
 
 function tagDot(color) {
@@ -1196,16 +959,6 @@ function formatClockTime(value) {
 
 function trimZeros(text) {
   return String(text || "").replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
-}
-
-function colorAlpha(color, alpha) {
-  if (String(color).indexOf("rgba(") === 0) return color;
-  var hex = String(color || "").replace("#", "");
-  if (hex.length !== 6) return color;
-  var r = parseInt(hex.slice(0, 2), 16);
-  var g = parseInt(hex.slice(2, 4), 16);
-  var b = parseInt(hex.slice(4, 6), 16);
-  return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
 }
 
 function simpleHash(text) {

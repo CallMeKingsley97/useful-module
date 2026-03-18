@@ -1,82 +1,118 @@
-# 机场订阅洞察布局修复说明
+# 机场订阅洞察平铺化改造说明
 
 ## 1. 背景
 
-文件位置：
+目标文件：
 
 - `modules/airport-subscribe.js`
 
-本次修复目标不是增加数据展示，而是解决 `systemMedium` 尺寸下的内容重叠、卡片互相挤压、底部状态区侵入主体内容的问题。
+本次改造目标不是继续压缩复杂卡片，而是把主屏尺寸统一改为平铺结构，直接规避重叠风险。
 
-## 2. 问题定位
+## 2. 问题根因
 
-原 `systemMedium` 布局存在以下结构性问题：
+旧版主屏布局的问题不在数据，而在结构：
 
-1. 左侧主卡本身信息密度过高。
-2. 右侧区域同时堆叠摘要卡和多条卡片列表，纵向高度接近组件极限。
-3. 主体区域底部依赖弹性 `spacer` 把 footer 顶到底部，在主体超高时更容易出现视觉挤压。
+1. `systemSmall` 使用圆环、进度条、状态胶囊，垂直层级过深。
+2. `systemMedium` 使用主卡 + 辅助卡双复杂区，动态文本和固定视觉同时争抢高度。
+3. `systemLarge` 使用总览卡 + 主卡 + 明细卡的叠加结构，信息层级过重。
 
-具体表现：
+结论：
 
-- 主卡中的圆环、文本、指标块在有限高度内互相覆盖。
-- 右侧摘要与列表卡片发生重叠或压缩。
-- footer 文案与主体区域争抢垂直空间。
+- 继续保留卡片型主视觉，就仍然存在挤压和重叠风险。
+- 最稳妥方案是直接改成列表平铺。
 
-## 3. 修复原则
+## 3. 改造原则
 
-遵循项目内 `egern-widgets` 布局规则：
+- 主屏尺寸只保留 `header + 平铺列表 + footer`
+- 不再使用圆环、进度条、摘要卡、指标卡、备注卡
+- 中号布局直接参考 `modules/github-stars.js`
+- 所有动态文案都必须单行收缩，优先 `maxLines + minScale`
 
-- `systemMedium` 只允许一个重型叙事卡片。
-- 另一侧必须降级为轻量辅助区，不能再堆复杂卡片。
-- 放不下时优先删减次要信息，而不是继续缩小字号硬塞。
+## 4. 新布局方案
 
-## 4. 修复方案
+### 4.1 `systemSmall`
 
-### 4.1 `systemMedium` 结构调整
+- `header`
+- `separator`
+- 2 条紧凑订阅行
+- `footer`
 
-改为固定的左右双区：
+每条行内容：
 
-- 左侧：单个主卡 `heroCard(focus, true)`
-- 右侧：单个轻量辅助卡 `mediumAsideCard(vm, sideItems)`
-- 底部：直接接 footer，不再使用弹性 `spacer`
+- 左侧状态点
+- 中间订阅名
+- 右侧 `compactText`
 
-### 4.2 主卡内容收敛
+### 4.2 `systemMedium`
 
-`heroCard` 在 medium 紧凑模式下做以下降级：
+- `header`
+- `separator`
+- 左右两列平铺行
+- `footer`
 
-- 圆环尺寸从 `70` 降到 `60`
-- 只保留主标题、状态、进度条、用量摘要、到期摘要
-- 移除 `metricBlock` 双指标块
-- 隐藏备注 `note`
+展示规则：
 
-### 4.3 右侧辅助区轻量化
+- 最多 4 条订阅
+- 按一半拆成左右两列
+- 中间允许 1 条竖向分隔线
+- 每条行仍为纯文本平铺，不生成独立背景卡
 
-新增 `mediumAsideCard`：
+### 4.3 `systemLarge`
 
-- 顶部保留精简版 `summaryCard(vm, true)`
-- 下方最多显示 2 条单行订阅摘要 `compactItemLine`
-- 不再为每条订阅生成独立背景卡片
+- `header`
+- `separator`
+- 1 条纯文本汇总行
+- 5 到 6 条展开订阅行
+- `footer`
 
-## 5. 布局流程图
+展开行内容：
+
+- 第一行：状态点 + 名称 + `percentText`
+- 第二行：`trafficText · expiryText`
+
+## 5. Mermaid 结构图
 
 ```mermaid
 flowchart TD
-    A["systemMedium"] --> B["Header"]
-    B --> C["双栏主体"]
-    C --> D["左侧主卡 heroCard"]
-    C --> E["右侧辅助卡 mediumAsideCard"]
-    D --> F["标题 + 状态 + 圆环"]
-    D --> G["进度条 + 用量/到期摘要"]
-    E --> H["摘要统计 summaryCard"]
-    E --> I["最多 2 条 compactItemLine"]
-    I --> J["Footer"]
-    G --> J
+    A["主屏尺寸"] --> B["systemSmall"]
+    A --> C["systemMedium"]
+    A --> D["systemLarge"]
+    B --> B1["Header"]
+    B1 --> B2["Separator"]
+    B2 --> B3["2 条紧凑平铺行"]
+    B3 --> B4["Footer"]
+    C --> C1["Header"]
+    C1 --> C2["Separator"]
+    C2 --> C3["左右两列平铺行"]
+    C3 --> C4["Footer"]
+    D --> D1["Header"]
+    D1 --> D2["Separator"]
+    D2 --> D3["纯文本汇总行"]
+    D3 --> D4["5~6 条展开平铺行"]
+    D4 --> D5["Footer"]
 ```
 
-## 6. 涉及文件
+## 6. 实现约束
 
-- `modules/airport-subscribe.js`
-- `prd/airport_subscribe.md`
+保留：
+
+- 数据拉取、缓存、排序、容错逻辑
+- `SUBSCRIPTIONS_JSON` 及现有环境变量
+- 锁屏尺寸 `accessoryCircular / accessoryRectangular / accessoryInline`
+
+删除主屏依赖：
+
+- `heroCard`
+- `summaryCard`
+- `mediumAsideCard`
+- `detailItemRow`
+- `compactItemRow`
+- `compactItemLine`
+- `circularUsage`
+- `progressBar`
+- `metricBlock`
+- `overviewRow`
+- `overviewChip`
 
 ## 7. 验证方式
 
@@ -85,19 +121,19 @@ flowchart TD
 执行命令：
 
 ```sh
-node --input-type=module -e 'import widget from "./modules/airport-subscribe.js"; const headers = { get: (k) => k === "subscription-userinfo" ? "upload=10737418240; download=11811160064; total=137438953472; expire=1792310400" : "" }; const ctx = { widgetFamily: "systemMedium", env: { TITLE: "机场订阅洞察", SUBSCRIPTIONS_JSON: JSON.stringify([{ name: "doriya", url: "https://sub.example.com/a", siteUrl: "https://airport.example.com", note: "主力线路" }, { name: "赔钱", url: "https://sub.example.com/b", siteUrl: "https://airport.example.com" }, { name: "备用", url: "https://sub.example.com/c", siteUrl: "https://airport.example.com" }]) }, storage: { getJSON() { return null; }, setJSON() {} }, http: { head: async function () { return { status: 200, headers: headers }; }, get: async function () { return { status: 200, headers: headers }; } } }; const res = await widget(ctx); console.log(JSON.stringify(res, null, 2));'
+node --input-type=module -e 'import widget from "./modules/airport-subscribe.js"; const headerValue = "upload=10737418240; download=11811160064; total=137438953472; expire=1792310400"; const headers = { get: (k) => String(k || "").toLowerCase() === "subscription-userinfo" ? headerValue : "" }; const env = { TITLE: "机场订阅洞察", SUBSCRIPTIONS_JSON: JSON.stringify([{ name: "doriya", url: "https://sub.example.com/a", siteUrl: "https://airport.example.com", note: "主力线路" }, { name: "赔钱", url: "https://sub.example.com/b", siteUrl: "https://airport.example.com" }, { name: "备用", url: "https://sub.example.com/c", siteUrl: "https://airport.example.com" }, { name: "收敛", url: "https://sub.example.com/d", siteUrl: "https://airport.example.com" }]) }; const base = { env: env, storage: { getJSON() { return null; }, setJSON() {} }, http: { head: async function () { return { status: 200, headers: headers }; }, get: async function () { return { status: 200, headers: headers }; } } }; for (const family of ["systemSmall","systemMedium","systemLarge"]) { const res = await widget({ ...base, widgetFamily: family }); console.log(family + ":" + JSON.stringify({ topLevel: res.children.length, hasDivider: JSON.stringify(res).includes("\"width\":1"), hasLargeCircle: JSON.stringify(res).includes("\"width\":60") || JSON.stringify(res).includes("\"width\":78") })); }'
 ```
 
 预期结果：
 
-- 主体区只有一张左侧主卡和一张右侧辅助卡。
-- 右侧不再出现“摘要卡 + 多张独立列表卡”的深层堆叠。
-- footer 为自然顺序流，不依赖弹性占位顶到底部。
+- `systemSmall / systemMedium / systemLarge` 都能正常输出
+- `systemMedium` 只包含平铺列结构，不包含主卡/摘要卡
+- 主屏结构中不再出现圆环尺寸 `60/78`
 
-### 7.2 人工视觉检查
+### 7.2 人工视觉验证
 
-在 Egern 中将该组件添加到 `systemMedium`，重点检查：
+重点检查：
 
-1. 左侧圆环是否与标题、进度条、摘要文本发生覆盖。
-2. 右侧摘要区与订阅列表是否保持清晰分层。
-3. footer 是否仍然侵入主体区域。
+1. `systemSmall` 没有圆环、进度条和卡片堆叠。
+2. `systemMedium` 左右两列只显示平铺行，长标题不会撞到右侧信息。
+3. `systemLarge` 汇总行、列表行、footer 三层不覆盖。
