@@ -1,0 +1,237 @@
+# Egern 多尺寸布局手册
+
+当任务涉及 `systemSmall / systemMedium / systemLarge` 兼容，或用户明确提到“不要挤压、不要重叠、要自适应”时，优先读取本文件。
+
+## 设计目标
+
+Egern 小组件的布局目标不是“放进更多内容”，而是：
+
+- 一眼读懂
+- 不挤压主信息
+- 动态文本不会撞到其他区域
+- 不同尺寸的信息密度合理递增
+
+## 信息密度分配
+
+### `systemSmall`
+
+适合：
+
+- 1 个主指标
+- 1 个核心结论
+- 1 到 2 行辅助信息
+
+不适合：
+
+- 双栏
+- 长列表
+- 复杂卡片网格
+- 超过两层的嵌套分区
+
+推荐模式：
+
+- 标题 + 主数字 + 摘要 + 状态
+- 图标 + 结论 + 次级说明
+
+### `systemMedium`
+
+适合：
+
+- 双栏对照
+- 左主右辅
+- 上主下辅
+
+推荐控制：
+
+- 同屏最多 2 个主分区
+- 单个列表通常不超过 4 项
+- 每个分区只保留一个重点
+
+### `systemLarge`
+
+适合：
+
+- 顶部总览
+- 中部 1 到 2 张重点卡
+- 底部补充明细或状态
+
+large 的本质是“可解释性增强”，不是“内容堆满”。
+
+## 防挤压与防重叠规则
+
+### 1. 任何动态文本都必须可收缩
+
+默认动作：
+
+- 单行文本加 `maxLines: 1`
+- 可能变长的标题和数值加 `minScale`
+- 允许换行的说明控制最大行数
+
+示例：
+
+```javascript
+txt(vm.title, 12, "semibold", "#FFFFFF", {
+  maxLines: 1,
+  minScale: 0.7
+})
+```
+
+### 2. 横向布局优先给文本留弹性空间
+
+如果一行内有：
+
+- 图标
+- 文本
+- 右侧指标
+
+则中间文本区优先使用 `flex: 1`，右侧指标保持自然宽度或短文本。
+
+示例：
+
+```javascript
+hstack([
+  icon("star.fill", 12, accent),
+  vstack([
+    txt(vm.name, 11, "medium", "#FFFFFF", { maxLines: 1, minScale: 0.7 })
+  ], { flex: 1 }),
+  txt(vm.value, 11, "bold", "#FFFFFF")
+], { gap: 6 })
+```
+
+### 3. 用 `spacer` 分配余量，不用硬编码顶开
+
+优先：
+
+```javascript
+hstack([
+  txt("标题", 12, "bold"),
+  sp(),
+  txt("状态", 10, "medium")
+])
+```
+
+不要依赖大量固定宽度去“猜”剩余空间。
+
+### 4. 固定尺寸只给稳定元素
+
+适合固定 `width/height` 的元素：
+
+- 图标
+- 图片
+- 分隔线
+- 进度条槽位
+- 明确大小的装饰块
+
+不适合轻易固定尺寸的元素：
+
+- 动态标题
+- 动态摘要
+- 可变数字组合
+
+### 5. 内容超载时先降级，不要硬塞
+
+优先降级顺序：
+
+1. 缩短文案
+2. 减少列表项数量
+3. 隐藏低优先级统计
+4. 把复杂信息移到 larger family
+
+不要把所有东西都保留，再靠更小字号硬塞进去。
+
+## family 设计建议
+
+### `buildSmall`
+
+先回答三个问题：
+
+- 用户第一眼必须看到什么
+- 哪一行可以删
+- 哪一行必须只占一行
+
+经验规则：
+
+- 标题一般 1 行
+- 主数值尽量 1 行
+- 摘要最多 2 行
+- 底部状态保持极简
+
+### `buildMedium`
+
+适合这些模式：
+
+- 对比两路数据
+- 左侧主结论 + 右侧细节
+- 顶部标题 + 下方分组列表
+
+经验规则：
+
+- 左右两区尽量平衡
+- 如果一侧内容明显更长，改成上下布局
+- 分隔条只用于加强结构，不要堆太多边框
+
+### `buildLarge`
+
+large 常见安全结构：
+
+- 顶部：标题、状态、标签
+- 中部：1 到 2 个核心卡片
+- 底部：明细、注释、时间信息
+
+经验规则：
+
+- 主标题不要超过 1 行
+- 中部卡片不超过 2 张
+- 底部明细最好控制在 3 到 5 行
+
+## accessory 设计建议
+
+### `accessoryCircular`
+
+只保留：
+
+- 单个图标
+- 单个数字
+- 极短标签
+
+### `accessoryRectangular`
+
+只保留：
+
+- 第一行结论
+- 第二行摘要
+
+### `accessoryInline`
+
+输出单句：
+
+- 结论 + 数值
+- 标题词 + 核心状态
+
+控制在一行可读范围，不要拼接太多字段。
+
+## 推荐代码结构
+
+```javascript
+export default async function (ctx) {
+  var vm = await loadViewModel(ctx);
+  var family = ctx.widgetFamily || "systemMedium";
+
+  if (family === "accessoryCircular") return buildCircular(vm);
+  if (family === "accessoryRectangular") return buildRectangular(vm);
+  if (family === "accessoryInline") return buildInline(vm);
+  if (family === "systemSmall") return buildSmall(vm);
+  if (family === "systemLarge" || family === "systemExtraLarge") return buildLarge(vm);
+  return buildMedium(vm);
+}
+```
+
+## 发布前自检
+
+发布前至少检查：
+
+- small 是否仍能一眼看懂
+- medium 是否存在左右区域争抢宽度
+- large 是否只是 medium 放大
+- accessory 是否做了真正降级
+- 标题、数值、标签、状态是否都做了长度控制

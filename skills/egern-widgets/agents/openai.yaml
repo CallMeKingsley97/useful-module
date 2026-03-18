@@ -1,0 +1,4 @@
+interface:
+  display_name: "Egern Widgets"
+  short_description: "面向 Egern 小组件开发的多尺寸布局、适配与脚本生成技能"
+  default_prompt: "Use $egern-widgets to 设计或实现一个兼容小中大尺寸的 Egern 小组件。"
