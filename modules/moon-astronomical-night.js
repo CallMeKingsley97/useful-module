@@ -398,6 +398,9 @@ function buildViewModel(data, openUrl, showMoonImage) {
     astroEnd: formatClock(data.astro.today.astronomicalTwilightEnd),
     astroBegin: formatClock(data.astro.tomorrow.astronomicalTwilightBegin),
     phaseDate: moon.dateKey,
+    moonAgeText: formatAgeDays(moon.ageDays),
+    updatedAt: data.fetchedAt || new Date().toISOString(),
+    stateKey: astro.state.key,
     theme: theme,
     openUrl: openUrl,
     statusText: data.location.nameSource === "coords" ? "经纬度" : "实时"
@@ -436,64 +439,90 @@ function reviveDate(value) {
 
 function buildSmall(vm, title, refreshAfter) {
   return shell([
-    header(title, vm.theme.accent, false),
-    sp(4),
-    separator(),
-    sp(6),
-    vstack([
-      moonFlatCompactRow("月相", vm.moonLabel + " · " + vm.illuminationPct + "%", vm.theme.accent),
-      moonFlatCompactRow("夜窗", vm.tonightWindow, "#F7FAFF")
-    ], { gap: 5, alignItems: "start" }),
+    header(title, vm, false),
     sp(8),
+    heroCard(vm, {
+      compact: true,
+      titleSize: 17,
+      subtitleLines: 1,
+      moonSize: 54,
+      showSummary: false,
+      showAgeTag: false,
+      padding: [12, 12, 12, 12],
+      borderRadius: 20
+    }),
+    sp(8),
+    hstack([
+      metricCard("夜窗", vm.tonightWindow, "今晚主窗口", vm.theme, { compact: true }),
+      metricCard("纯暗", vm.darkDurationText, "边界 " + vm.astroEnd + " 起", vm.theme, { compact: true })
+    ], { gap: 8, alignItems: "stretch" }),
+    sp(),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [12, 14, 10, 14]);
 }
 
 function buildMedium(vm, title, refreshAfter) {
   return shell([
-    header(title, vm.theme.accent, true),
-    sp(4),
-    separator(),
+    header(title, vm, true),
     sp(8),
-    txt(vm.nightTitle + " · " + vm.nightSubtitle, 10, "medium", "rgba(228,235,245,0.70)", {
-      maxLines: 1,
-      minScale: 0.62
+    heroCard(vm, {
+      titleSize: 20,
+      subtitleLines: 2,
+      moonSize: 76,
+      showSummary: true,
+      padding: [13, 14, 13, 14],
+      borderRadius: 22
     }),
     sp(8),
-    vstack([
-      hstack([
-        detailCard("月相", vm.moonLabel, true),
-        detailCard("照亮", vm.illuminationPct + "%", true)
-      ], { gap: 8, alignItems: "stretch" }),
-      hstack([
-        detailCard("夜窗", vm.tonightWindow, false),
-        detailCard("纯暗", vm.darkDurationText, false)
-      ], { gap: 8, alignItems: "stretch" })
+    hstack([
+      metricCard("月相", vm.moonLabel, "照亮 " + vm.illuminationPct + "%", vm.theme),
+      metricCard("夜窗", vm.tonightWindow, vm.nightSubtitle, vm.theme)
     ], { gap: 8, alignItems: "stretch" }),
     sp(8),
+    hstack([
+      metricCard("纯暗", vm.darkDurationText, "边界 " + vm.astroEnd + " → " + vm.astroBegin, vm.theme),
+      metricCard("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.moonAgeText, vm.theme)
+    ], { gap: 8, alignItems: "stretch" }),
+    sp(),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
 }
 
 function buildLarge(vm, title, refreshAfter) {
   return shell([
-    header(title, vm.theme.accent, true),
-    sp(6),
-    separator(),
-    sp(8),
-    txt(vm.locationLine + " · " + vm.nightTitle, 10, "medium", "rgba(228,235,245,0.72)", {
-      maxLines: 1,
-      minScale: 0.64
-    }),
-    sp(8),
-    vstack([
-      moonFlatExpandedRow("地点", vm.locationLine, vm.phaseDate, vm.theme),
-      moonFlatExpandedRow("月相", vm.moonLabel, "\u7167\u4eae " + vm.illuminationPct + "% · " + vm.moonSummary, vm.theme),
-      moonFlatExpandedRow("今晚夜窗", vm.tonightWindow, vm.nightSubtitle, vm.theme),
-      moonFlatExpandedRow("纯暗时长", vm.darkDurationText, "边界 " + vm.astroEnd + " → " + vm.astroBegin, vm.theme),
-      moonFlatExpandedRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, null, vm.theme)
-    ], { gap: 6, alignItems: "start" }),
-    sp(8),
+    header(title, vm, true),
+    sp(10),
+    hstack([
+      heroCard(vm, {
+        flex: 1.08,
+        titleSize: 22,
+        subtitleLines: 2,
+        moonSize: 88,
+        showSummary: true,
+        padding: [14, 15, 14, 15],
+        borderRadius: 24
+      }),
+      moonVisualCard(vm, {
+        flex: 0.92,
+        imageSize: 98,
+        padding: [14, 14, 14, 14],
+        borderRadius: 24
+      })
+    ], { gap: 10, alignItems: "stretch" }),
+    sp(10),
+    hstack([
+      metricGroupPanel("今夜窗口", [
+        detailRow("夜窗", vm.tonightWindow, vm.theme),
+        detailRow("纯暗", vm.darkDurationText, vm.theme),
+        detailRow("边界", vm.astroEnd + " → " + vm.astroBegin, vm.theme)
+      ], vm.theme, { flex: 1 }),
+      metricGroupPanel("观测参考", [
+        detailRow("月相", vm.moonLabel, vm.theme),
+        detailRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.theme),
+        detailRow("位置", vm.locationLine, vm.theme)
+      ], vm.theme, { flex: 1 })
+    ], { gap: 10, alignItems: "stretch" }),
+    sp(),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
 }
@@ -505,9 +534,9 @@ function buildCircular(vm) {
     gap: 2,
     children: [
       sp(),
-      icon(vm.moonIcon, 16, vm.theme.accent),
-      txt(vm.illuminationPct + "%", 12, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.7 }),
-      txt("月面", 9, "medium", "rgba(228,235,245,0.68)", { maxLines: 1, minScale: 0.7 }),
+      moonStage(vm, 30),
+      txt(vm.illuminationPct + "%", 11, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.7 }),
+      txt(shortNightState(vm.stateKey), 8, "medium", vm.theme.textMuted, { maxLines: 1, minScale: 0.7 }),
       sp()
     ]
   };
@@ -521,12 +550,12 @@ function buildRectangular(vm, title) {
     children: [
       hstack([
         icon(vm.moonIcon, 10, vm.theme.accent),
-        txt(title, 10, "semibold", "rgba(228,235,245,0.82)", { maxLines: 1, minScale: 0.75 }),
+        txt(title, 10, "semibold", vm.theme.textMuted, { maxLines: 1, minScale: 0.75 }),
         sp(),
         txt(vm.illuminationPct + "%", 9, "bold", vm.theme.accent)
       ], { gap: 4 }),
-      txt(vm.moonLabel, 12, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.7 }),
-      txt(vm.nightTitle + " · " + vm.astroEnd, 10, "medium", "rgba(228,235,245,0.68)", { maxLines: 1, minScale: 0.7 })
+      txt(vm.nightTitle, 12, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.7 }),
+      txt(vm.moonLabel + " · " + vm.tonightWindow, 10, "medium", vm.theme.textMuted, { maxLines: 1, minScale: 0.7 })
     ]
   };
 }
@@ -537,7 +566,7 @@ function buildInline(vm, title) {
     url: vm.openUrl || undefined,
     children: [
       icon(vm.moonIcon, 12, vm.theme.accent),
-      txt(" " + title + "：" + vm.moonLabel + "，" + vm.nightTitle, 12, "medium", "#F7FAFF", {
+      txt(" " + vm.moonLabel + " · " + shortNightState(vm.stateKey), 12, "medium", "#F7FAFF", {
         maxLines: 1,
         minScale: 0.6
       })
@@ -545,133 +574,193 @@ function buildInline(vm, title) {
   };
 }
 
-function moonFlatDot(color) {
-  return {
-    type: "stack",
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: color || "#D8E2FF",
-    children: []
-  };
-}
+function moonStage(vm, size) {
+  var visual = vm.moonImage ? {
+    type: "image",
+    src: vm.moonImage,
+    width: Math.round(size * 0.78),
+    height: Math.round(size * 0.78),
+    resizeMode: "contain"
+  } : icon(vm.moonIcon, Math.max(22, Math.round(size * 0.34)), "#09111F");
 
-function moonFlatCompactRow(label, value, color) {
-  return hstack([
-    moonFlatDot(color),
-    txt(label, 10, "medium", "rgba(228,235,245,0.68)", { maxLines: 1 }),
-    vstack([
-      txt(value, 10, "semibold", color || "#F7FAFF", { maxLines: 1, minScale: 0.6, textAlign: "right" })
-    ], { flex: 1, alignItems: "end" })
-  ], { gap: 6, alignItems: "center" });
-}
-
-function moonFlatExpandedRow(label, value, detail, theme) {
   return vstack([
-    hstack([
-      moonFlatDot(theme.accent),
-      txt(label, 10, "medium", "rgba(228,235,245,0.62)", { maxLines: 1 }),
-      vstack([
-        txt(value, 11, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.64, textAlign: "right" })
-      ], { flex: 1, alignItems: "end" })
-    ], { gap: 6, alignItems: "center" }),
-    detail ? txt(detail, 9, "medium", "rgba(228,235,245,0.52)", { maxLines: 1, minScale: 0.62 }) : null
-  ].filter(Boolean), { gap: 4, alignItems: "start" });
-}
-
-
-function moonVisual(vm, size) {
-  if (vm.moonImage) {
-    return {
-      type: "image",
-      src: vm.moonImage,
-      width: size,
-      height: size,
-      resizeMode: "contain"
-    };
-  }
-
-  return {
-    type: "stack",
+    sp(),
+    visual,
+    sp()
+  ], {
     width: size,
     height: size,
-    borderRadius: 999,
-    backgroundGradient: {
-      type: "linear",
-      colors: ["rgba(248,250,255,0.95)", "rgba(184,198,229,0.82)"],
-      startPoint: { x: 0, y: 0 },
-      endPoint: { x: 1, y: 1 }
-    },
-    children: [
-      icon(vm.moonIcon, Math.max(20, Math.round(size * 0.3)), "#0B1020")
-    ],
-    alignItems: "center"
-  };
+    alignItems: "center",
+    borderRadius: size / 2,
+    borderWidth: 1,
+    borderColor: vm.theme.hairlineStrong,
+    backgroundColor: vm.theme.cardStrong,
+    backgroundGradient: linearGradient([
+      colorWithAlpha(vm.theme.accent, 0.34),
+      colorWithAlpha(vm.theme.accent, 0.12),
+      "rgba(255,255,255,0.04)"
+    ]),
+    shadowColor: vm.theme.accentGlow,
+    shadowRadius: Math.round(size * 0.32),
+    shadowOffset: { x: 0, y: 8 }
+  });
 }
 
 function moonVisualCard(vm, opts) {
   opts = opts || {};
-  var children = [
-    moonVisual(vm, opts.imageSize || 84),
-    sp(8),
-    txt(vm.moonLabel, 12, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.72, textAlign: "center" }),
-    txt(vm.moonSummary, 9, "medium", "rgba(228,235,245,0.68)", { maxLines: 2, minScale: 0.72, textAlign: "center" })
+  return panel([
+    hstack([
+      sectionLabel("月面观感", vm.theme),
+      sp(),
+      nightStateTag(vm)
+    ], { gap: 6, alignItems: "center" }),
+    sp(12),
+    hstack([sp(), moonStage(vm, opts.imageSize || 96), sp()], { alignItems: "center" }),
+    sp(10),
+    txt(vm.moonLabel, 15, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.72, textAlign: "center" }),
+    sp(4),
+    txt(vm.moonSummary, 10, "medium", vm.theme.textMuted, {
+      maxLines: 3,
+      minScale: 0.72,
+      textAlign: "center"
+    }),
+    sp(10),
+    hstack([
+      tag("照亮 " + vm.illuminationPct + "%", vm.theme.accent, vm.theme.accentSoft, 8),
+      tag(vm.moonAgeText, "#FFFFFF", vm.theme.cardSoft, 8)
+    ], { gap: 6, alignItems: "center" }),
+    sp(6),
+    txt(vm.phaseDate, 9, "medium", vm.theme.textSubtle, { maxLines: 1, minScale: 0.72 })
+  ], vm.theme, {
+    flex: opts.flex,
+    alignItems: "center",
+    padding: opts.padding || [14, 14, 14, 14],
+    borderRadius: opts.borderRadius || 22,
+    backgroundColor: vm.theme.cardStrong,
+    backgroundGradient: linearGradient([
+      colorWithAlpha(vm.theme.accent, 0.18),
+      vm.theme.cardStrong,
+      vm.theme.card
+    ]),
+    borderColor: vm.theme.hairlineStrong
+  });
+}
+
+function heroCard(vm, opts) {
+  opts = opts || {};
+  var compact = !!opts.compact;
+  var tags = [
+    nightStateTag(vm),
+    tag(vm.moonLabel, vm.theme.accent, vm.theme.accentSoft, compact ? 8 : 9),
+    tag("照亮 " + vm.illuminationPct + "%", "#FFFFFF", vm.theme.cardSoft, compact ? 8 : 9)
   ];
 
-  if (opts.showIllumination !== false) {
-    children.push(sp(6));
-    children.push(txt("\u7167\u4eae " + vm.illuminationPct + "%", 9, "semibold", vm.theme.accent, { maxLines: 1, minScale: 0.72 }));
+  if (!compact && opts.showAgeTag !== false) {
+    tags.push(tag(vm.moonAgeText, "#FFFFFF", vm.theme.cardSoft, 8));
   }
 
-  if (opts.showDate !== false) {
-    children.push(sp(4));
-    children.push(txt(vm.phaseDate, 9, "medium", "rgba(228,235,245,0.46)", { maxLines: 1, minScale: 0.72 }));
-  }
-
-  return vstack(children, {
-    width: opts.width || 132,
-    padding: [12, 12, 12, 12],
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)"
+  return panel([
+    hstack([
+      vstack([
+        sectionLabel("月相与夜窗", vm.theme),
+        sp(compact ? 6 : 8),
+        txt(vm.nightTitle, opts.titleSize || (compact ? 18 : 21), "bold", "#F7FAFF", {
+          maxLines: compact ? 2 : 1,
+          minScale: 0.58
+        }),
+        sp(4),
+        txt(vm.nightSubtitle, compact ? 10 : 11, "medium", vm.theme.textMuted, {
+          maxLines: opts.subtitleLines || (compact ? 1 : 2),
+          minScale: 0.72
+        }),
+        sp(compact ? 7 : 9),
+        hstack(tags, { gap: 6, alignItems: "center" }),
+        opts.showSummary === false ? null : sp(8),
+        opts.showSummary === false ? null : txt(vm.moonSummary, 10, "regular", compact ? vm.theme.textMuted : "#F7FAFF", {
+          maxLines: compact ? 2 : 3,
+          minScale: 0.72
+        })
+      ].filter(Boolean), { gap: 0, flex: 1, alignItems: "start" }),
+      moonStage(vm, opts.moonSize || (compact ? 56 : 78))
+    ], { gap: compact ? 10 : 12, alignItems: "center" })
+  ], vm.theme, {
+    flex: opts.flex,
+    padding: opts.padding || [13, 14, 13, 14],
+    borderRadius: opts.borderRadius || 22,
+    backgroundColor: vm.theme.cardStrong,
+    backgroundGradient: linearGradient([
+      colorWithAlpha(vm.theme.accent, compact ? 0.20 : 0.18),
+      colorWithAlpha(vm.theme.accent, 0.08),
+      vm.theme.card
+    ]),
+    borderColor: vm.theme.hairlineStrong,
+    shadowColor: vm.theme.accentGlow,
+    shadowRadius: compact ? 12 : 16,
+    shadowOffset: { x: 0, y: 8 }
   });
 }
 
-function detailCard(title, value, emphasize) {
-  return vstack([
-    txt(title, 10, "medium", emphasize ? "rgba(228,235,245,0.82)" : "rgba(228,235,245,0.6)", { maxLines: 1 }),
-    sp(4),
-    txt(value, emphasize ? 12 : 11, emphasize ? "semibold" : "medium", "#F7FAFF", {
-      maxLines: emphasize ? 2 : 1,
-      minScale: 0.72
-    })
-  ], {
-    flex: 1,
-    padding: [12, 12, 12, 12],
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)"
+function metricCard(title, value, detail, theme, opts) {
+  opts = opts || {};
+  var compact = !!opts.compact;
+  return panel([
+    txt(title, compact ? 8 : 9, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.72 }),
+    sp(3),
+    txt(value, compact ? 11 : 13, "bold", "#F7FAFF", {
+      maxLines: compact ? 1 : 2,
+      minScale: 0.58
+    }),
+    detail ? sp(3) : null,
+    detail ? txt(detail, compact ? 8 : 9, "medium", theme.textMuted, {
+      maxLines: compact ? 1 : 2,
+      minScale: 0.64
+    }) : null
+  ].filter(Boolean), theme, {
+    flex: opts.flex == null ? 1 : opts.flex,
+    padding: compact ? [9, 10, 9, 10] : [10, 12, 10, 12],
+    borderRadius: compact ? 16 : 18,
+    backgroundColor: compact ? theme.cardSoft : theme.card,
+    backgroundGradient: linearGradient([
+      colorWithAlpha(theme.accent, compact ? 0.10 : 0.12),
+      theme.cardSoft,
+      theme.card
+    ]),
+    borderColor: compact ? theme.hairline : theme.hairlineStrong
   });
 }
 
-function footer(vm) {
+function metricGroupPanel(title, rows, theme, opts) {
+  opts = opts || {};
+  return panel([
+    sectionLabel(title, theme),
+    sp(8),
+    vstack(rows, { gap: 7, alignItems: "start" })
+  ], theme, {
+    flex: opts.flex,
+    padding: opts.padding || [12, 13, 12, 13],
+    borderRadius: opts.borderRadius || 20,
+    backgroundColor: theme.card,
+    backgroundGradient: linearGradient([
+      colorWithAlpha(theme.accent, 0.10),
+      theme.cardSoft,
+      theme.card
+    ]),
+    borderColor: theme.hairlineStrong
+  });
+}
+
+function detailRow(label, value, theme) {
   return hstack([
-    txt(vm.locationLine, 9, "medium", "rgba(228,235,245,0.48)", { maxLines: 1, minScale: 0.7 }),
-    sp(),
-    txt(vm.statusText, 9, "medium", vm.theme.accent, { maxLines: 1 })
-  ], { gap: 6 });
-}
-
-function starfield(count) {
-  var children = [];
-  var names = ["sparkle", "sparkles", "star.fill"];
-  for (var i = 0; i < count; i++) {
-    children.push(icon(names[i % names.length], i % 2 === 0 ? 6 : 8, i % 2 === 0 ? "rgba(255,255,255,0.16)" : "rgba(180,200,255,0.22)"));
-  }
-  return hstack(children, { gap: 6, alignItems: "center" });
+    txt(label, 9, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.72 }),
+    sp(8),
+    vstack([
+      txt(value, 10, "semibold", "#F7FAFF", {
+        maxLines: 1,
+        minScale: 0.6,
+        textAlign: "right"
+      })
+    ], { flex: 1, alignItems: "end" })
+  ], { gap: 8, alignItems: "center" });
 }
 
 function shell(children, refreshAfter, url, theme, padding) {
@@ -680,71 +769,252 @@ function shell(children, refreshAfter, url, theme, padding) {
     padding: padding || [14, 16, 12, 16],
     gap: 0,
     refreshAfter: refreshAfter,
-    backgroundGradient: {
-      type: "linear",
-      colors: theme.gradient,
-      startPoint: { x: 0, y: 0 },
-      endPoint: { x: 1, y: 1 }
-    },
+    backgroundGradient: linearGradient(theme.gradient),
     children: children
   };
   if (url) widget.url = url;
   return widget;
 }
 
-function header(title, accent, showTime) {
+function header(title, vm, showTime) {
   var children = [
-    icon("moonphase.waxing.gibbous", 14, accent),
-    txt(title, 12, "bold", accent, { maxLines: 1, minScale: 0.72 }),
-    sp()
+    accentOrb(vm.theme, showTime ? 26 : 24, vm.moonIcon),
+    vstack([
+      txt(title, 11, "bold", vm.theme.accent, { maxLines: 1, minScale: 0.68 }),
+      txt(vm.locationLine, 9, "medium", vm.theme.textMuted, { maxLines: 1, minScale: 0.72 })
+    ], { gap: 1, flex: 1 })
   ];
-  if (showTime) {
-    children.push({
+
+  if (showTime) children.push(timePill(vm.theme));
+
+  return hstack(children, { gap: 8, alignItems: "center" });
+}
+
+function timePill(theme) {
+  return hstack([
+    icon("clock", 8, theme.accent),
+    {
       type: "date",
       date: new Date().toISOString(),
       format: "time",
       font: { size: 9, weight: "medium" },
-      textColor: "rgba(228,235,245,0.35)"
-    });
-  }
-  return hstack(children, { gap: 5, alignItems: "center" });
+      textColor: theme.textSubtle
+    }
+  ], {
+    gap: 4,
+    padding: [4, 8, 4, 8],
+    backgroundColor: theme.cardSoft,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: theme.hairline
+  });
 }
 
-function separator() {
+function footer(vm) {
+  return hstack([
+    hstack([
+      icon("clock.arrow.circlepath", 8, vm.theme.textSubtle),
+      {
+        type: "date",
+        date: vm.updatedAt || new Date().toISOString(),
+        format: "relative",
+        font: { size: 9, weight: "medium" },
+        textColor: vm.theme.textSubtle
+      }
+    ], { gap: 4, flex: 1, alignItems: "center" }),
+    sourceTag(vm)
+  ], { gap: 6, alignItems: "center" });
+}
+
+function accentOrb(theme, size, symbol) {
+  return vstack([
+    sp(),
+    icon(symbol || "moonphase.waxing.gibbous", Math.max(12, Math.round(size * 0.42)), theme.accent),
+    sp()
+  ], {
+    width: size,
+    height: size,
+    alignItems: "center",
+    borderRadius: size / 2,
+    borderWidth: 1,
+    borderColor: theme.hairlineStrong,
+    backgroundColor: theme.cardStrong,
+    backgroundGradient: linearGradient([
+      colorWithAlpha(theme.accent, 0.34),
+      colorWithAlpha(theme.accent, 0.10),
+      "rgba(255,255,255,0.03)"
+    ]),
+    shadowColor: theme.accentGlow,
+    shadowRadius: Math.round(size * 0.42),
+    shadowOffset: { x: 0, y: 6 }
+  });
+}
+
+function sectionLabel(text, theme) {
+  return hstack([
+    microBar(theme),
+    txt(text, 8, "semibold", theme.textSubtle, { maxLines: 1, minScale: 0.72 })
+  ], { gap: 6, alignItems: "center" });
+}
+
+function microBar(theme) {
   return {
     type: "stack",
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    children: []
+    width: 16,
+    height: 4,
+    borderRadius: 99,
+    backgroundGradient: linearGradient([
+      theme.accent,
+      colorWithAlpha(theme.accent, 0.24)
+    ], { x: 0, y: 0.5 }, { x: 1, y: 0.5 })
   };
 }
 
+function tag(text, color, bg, size) {
+  return hstack([
+    txt(text, size || 9, "semibold", color || "#F7FAFF", { maxLines: 1, minScale: 0.55 })
+  ], {
+    padding: [3, 7, 3, 7],
+    backgroundColor: bg || "rgba(255,255,255,0.08)",
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: colorWithAlpha(color || "#F7FAFF", 0.28)
+  });
+}
+
+function panel(children, theme, opts) {
+  var el = {
+    type: "stack",
+    direction: "column",
+    alignItems: "start",
+    children: children,
+    padding: [10, 12, 10, 12],
+    backgroundColor: theme.card,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.hairline,
+    shadowColor: "rgba(0,0,0,0.18)",
+    shadowRadius: 12,
+    shadowOffset: { x: 0, y: 6 }
+  };
+  if (opts) {
+    for (var k in opts) if (opts[k] !== undefined) el[k] = opts[k];
+  }
+  return el;
+}
+
+function sourceTag(vm) {
+  var tone = sourceTone(vm.statusText, vm.theme);
+  return tag(vm.statusText, tone.color, tone.bg, 8);
+}
+
+function sourceTone(statusText, theme) {
+  if (statusText === "缓存") {
+    return { color: "#F6C96B", bg: "rgba(246,201,107,0.16)" };
+  }
+  if (statusText === "经纬度") {
+    return { color: "#9CC4FF", bg: "rgba(156,196,255,0.16)" };
+  }
+  return { color: theme.accent, bg: theme.accentSoft };
+}
+
+function nightStateTag(vm) {
+  var tone = nightStateTone(vm.stateKey, vm.theme);
+  return tag(shortNightState(vm.stateKey), tone.color, tone.bg, 8);
+}
+
+function nightStateTone(stateKey, theme) {
+  if (stateKey === "in_night_before_dawn" || stateKey === "in_night_evening") {
+    return { color: theme.accent, bg: theme.accentSoft };
+  }
+  if (stateKey === "before_night") {
+    return { color: "#8FB9FF", bg: "rgba(143,185,255,0.16)" };
+  }
+  return { color: theme.textMuted, bg: theme.cardSoft };
+}
+
+function shortNightState(stateKey) {
+  if (stateKey === "in_night_before_dawn" || stateKey === "in_night_evening") return "天文夜中";
+  if (stateKey === "before_night") return "今晚开启";
+  return "等待中";
+}
+
 function buildTheme(phase, stateKey) {
-  var accent = "#AABFFF";
-  var gradient = ["#08101F", "#111A31", "#1B2144"];
+  var accent = "#D4E1FF";
+  var gradient = ["#04070F", "#0A1220", "#121B31"];
 
   if (phase < 0.1 || phase > 0.9) {
-    accent = "#E7ECFF";
-    gradient = ["#080B15", "#10172A", "#1A2336"];
+    accent = "#F1F5FF";
+    gradient = ["#05070E", "#0A1220", "#111A2D"];
   } else if (phase < 0.25) {
-    accent = "#9DB7FF";
-    gradient = ["#08101F", "#111A31", "#23345E"];
+    accent = "#9FC2FF";
+    gradient = ["#050A13", "#0C1730", "#18325B"];
   } else if (phase < 0.5) {
-    accent = "#C9D7FF";
-    gradient = ["#0A1020", "#1A203B", "#313868"];
+    accent = "#C8DAFF";
+    gradient = ["#060913", "#111B34", "#243559"];
   } else if (phase < 0.75) {
-    accent = "#F2F4FF";
-    gradient = ["#101522", "#262C45", "#41486D"];
+    accent = "#F4F7FF";
+    gradient = ["#070A12", "#151C2E", "#2A3552"];
   }
 
   if (stateKey === "in_night_before_dawn" || stateKey === "in_night_evening") {
-    accent = "#DDE6FF";
+    accent = phase < 0.25 ? "#B9D3FF" : "#E6EEFF";
   }
 
   return {
     accent: accent,
-    gradient: gradient
+    accentSoft: colorWithAlpha(accent, 0.18),
+    accentGlow: colorWithAlpha(accent, 0.34),
+    gradient: gradient,
+    card: "rgba(12,18,30,0.64)",
+    cardStrong: "rgba(17,24,40,0.82)",
+    cardSoft: "rgba(255,255,255,0.07)",
+    textMuted: "rgba(236,240,247,0.72)",
+    textSubtle: "rgba(236,240,247,0.42)",
+    hairline: "rgba(255,255,255,0.10)",
+    hairlineStrong: "rgba(255,255,255,0.15)"
   };
+}
+
+function linearGradient(colors, startPoint, endPoint) {
+  return {
+    type: "linear",
+    colors: colors,
+    startPoint: startPoint || { x: 0, y: 0 },
+    endPoint: endPoint || { x: 1, y: 1 }
+  };
+}
+
+function colorWithAlpha(color, alpha) {
+  var str = String(color || "").trim();
+  var opacity = clampUnit(alpha);
+  var hex = str.match(/^#([0-9a-f]{6}|[0-9a-f]{8})$/i);
+  if (hex) {
+    var value = hex[1].slice(0, 6);
+    var r = parseInt(value.slice(0, 2), 16);
+    var g = parseInt(value.slice(2, 4), 16);
+    var b = parseInt(value.slice(4, 6), 16);
+    return "rgba(" + r + ", " + g + ", " + b + ", " + trimOpacity(opacity) + ")";
+  }
+
+  var rgba = str.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([0-9.]+))?\s*\)$/i);
+  if (rgba) {
+    return "rgba(" + rgba[1] + ", " + rgba[2] + ", " + rgba[3] + ", " + trimOpacity(opacity) + ")";
+  }
+
+  return str;
+}
+
+function clampUnit(val) {
+  var n = parseFloat(val);
+  if (!isFinite(n)) return 1;
+  if (n < 0) return 0;
+  if (n > 1) return 1;
+  return n;
+}
+
+function trimOpacity(val) {
+  return String(Math.round(val * 1000) / 1000);
 }
 
 function phaseLabel(phase) {
@@ -776,6 +1046,12 @@ function formatDurationMinutes(minutes) {
   if (h <= 0) return m + " 分钟";
   if (m === 0) return h + " 小时";
   return h + " 小时 " + m + " 分";
+}
+
+function formatAgeDays(days) {
+  var value = Math.round(Number(days) * 10) / 10;
+  if (!isFinite(value)) return "月龄 --";
+  return "月龄 " + value.toFixed(1) + " 天";
 }
 
 function parseTime(value) {
