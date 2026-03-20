@@ -101,7 +101,8 @@ async function resolveLocation(ctx, city, lat, lon, locationNameInput, tzidInput
     return {
       latitude: lat,
       longitude: lon,
-      name: resolvedName || "当前地点",
+      name: resolvedName || formatCoordinateLabel(lat, lon),
+      nameSource: locationNameInput ? "manual" : resolvedName ? "reverse" : "coords",
       tzid: tzidInput || "Asia/Shanghai"
     };
   }
@@ -120,6 +121,7 @@ async function resolveLocation(ctx, city, lat, lon, locationNameInput, tzidInput
     latitude: Number(item.latitude),
     longitude: Number(item.longitude),
     name: name,
+    nameSource: locationNameInput ? "manual" : "city",
     tzid: tzidInput || item.timezone || "Asia/Shanghai"
   };
 }
@@ -130,7 +132,8 @@ async function fetchReverseLocationName(ctx, lat, lon) {
       + "?format=jsonv2"
       + "&lat=" + encodeURIComponent(lat)
       + "&lon=" + encodeURIComponent(lon)
-      + "&zoom=10"
+      + "&zoom=12"
+      + "&addressdetails=1"
       + "&accept-language=zh-CN";
     var resp = await ctx.http.get(url, {
       headers: {
@@ -153,8 +156,17 @@ function formatReverseGeoName(data) {
   if (!data || typeof data !== "object") return "";
   var addr = data.address || {};
 
-  var city = addr.city || addr.town || addr.county || addr.state_district || addr.state || "";
-  var district = addr.suburb || addr.city_district || addr.borough || addr.village || addr.township || "";
+  var city = firstNonEmpty(
+    addr.city,
+    addr.town,
+    addr.county,
+    addr.city_district,
+    addr.state_district,
+    addr.state,
+    addr.province,
+    addr.municipality
+  );
+  var district = firstNonEmpty(addr.suburb, addr.city_district, addr.borough, addr.village, addr.township);
 
   if (city && district && city !== district) return city + " · " + district;
   if (city) return city;
@@ -361,9 +373,11 @@ function buildViewModel(data, openUrl, showMoonImage) {
   var moonImage = showMoonImage ? data.moonImage : null;
   var darkDurationText = astro.darkDurationMinutes > 0 ? formatDurationMinutes(astro.darkDurationMinutes) : "--";
   var tonightWindow = formatNightWindow(astro);
+  var locationLine = formatLocationLine(data.location);
 
   return {
     location: data.location.name,
+    locationLine: locationLine,
     tzid: data.location.tzid,
     moonLabel: moon.label,
     moonSummary: moon.summary,
@@ -382,7 +396,7 @@ function buildViewModel(data, openUrl, showMoonImage) {
     phaseDate: moon.dateKey,
     theme: theme,
     openUrl: openUrl,
-    statusText: "实时"
+    statusText: data.location.nameSource === "coords" ? "经纬度" : "实时"
   };
 }
 
@@ -436,23 +450,22 @@ function buildMedium(vm, title, refreshAfter) {
     header(title, vm.theme.accent, true),
     sp(4),
     separator(),
-    sp(6),
-    txt(vm.nightTitle + " · " + vm.nightSubtitle, 10, "medium", "rgba(228,235,245,0.72)", {
+    sp(8),
+    txt(vm.nightTitle + " · " + vm.nightSubtitle, 10, "medium", "rgba(228,235,245,0.70)", {
       maxLines: 1,
-      minScale: 0.6
+      minScale: 0.62
     }),
-    sp(6),
-    hstack([
-      vstack([
-        moonFlatCompactRow("月相", vm.moonLabel, vm.theme.accent),
-        moonFlatCompactRow("照亮", vm.illuminationPct + "%", "#F7FAFF")
-      ], { gap: 6, flex: 1, alignItems: "start" }),
-      vstack([], { width: 1, backgroundColor: "rgba(255,255,255,0.06)" }),
-      vstack([
-        moonFlatCompactRow("夜窗", vm.tonightWindow, "#F7FAFF"),
-        moonFlatCompactRow("纯暗", vm.darkDurationText, vm.theme.accent)
-      ], { gap: 6, flex: 1, alignItems: "start" })
-    ], { gap: 8, alignItems: "start" }),
+    sp(8),
+    vstack([
+      hstack([
+        detailCard("月相", vm.moonLabel, true),
+        detailCard("照亮", vm.illuminationPct + "%", true)
+      ], { gap: 8, alignItems: "stretch" }),
+      hstack([
+        detailCard("夜窗", vm.tonightWindow, false),
+        detailCard("纯暗", vm.darkDurationText, false)
+      ], { gap: 8, alignItems: "stretch" })
+    ], { gap: 8, alignItems: "stretch" }),
     sp(8),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
@@ -464,13 +477,13 @@ function buildLarge(vm, title, refreshAfter) {
     sp(6),
     separator(),
     sp(8),
-    txt(vm.location + " · " + vm.nightTitle, 10, "medium", "rgba(228,235,245,0.72)", {
+    txt(vm.locationLine + " · " + vm.nightTitle, 10, "medium", "rgba(228,235,245,0.72)", {
       maxLines: 1,
       minScale: 0.64
     }),
     sp(8),
     vstack([
-      moonFlatExpandedRow("地点", vm.location, vm.phaseDate, vm.theme),
+      moonFlatExpandedRow("地点", vm.locationLine, vm.phaseDate, vm.theme),
       moonFlatExpandedRow("月相", vm.moonLabel, "\u7167\u4eae " + vm.illuminationPct + "% · " + vm.moonSummary, vm.theme),
       moonFlatExpandedRow("今晚夜窗", vm.tonightWindow, vm.nightSubtitle, vm.theme),
       moonFlatExpandedRow("纯暗时长", vm.darkDurationText, "边界 " + vm.astroEnd + " → " + vm.astroBegin, vm.theme),
@@ -642,7 +655,7 @@ function detailCard(title, value, emphasize) {
 
 function footer(vm) {
   return hstack([
-    txt(vm.location, 9, "medium", "rgba(228,235,245,0.48)", { maxLines: 1, minScale: 0.7 }),
+    txt(vm.locationLine, 9, "medium", "rgba(228,235,245,0.48)", { maxLines: 1, minScale: 0.7 }),
     sp(),
     txt(vm.statusText, 9, "medium", vm.theme.accent, { maxLines: 1 })
   ], { gap: 6 });
@@ -785,7 +798,27 @@ function formatGeoName(item) {
   var parts = [];
   if (item.name) parts.push(item.name);
   if (item.admin1 && item.admin1 !== item.name) parts.push(item.admin1);
-  return parts.join(" · ") || "当前地点";
+  return parts.join(" · ") || "当前位置";
+}
+
+function formatCoordinateLabel(lat, lon) {
+  return "坐标 " + roundCoord(lat).toFixed(4) + ", " + roundCoord(lon).toFixed(4);
+}
+
+function formatLocationLine(loc) {
+  var text = String(loc && loc.name ? loc.name : "").trim();
+  var source = String(loc && loc.nameSource ? loc.nameSource : "");
+  if (!text) return "当前位置";
+  if (source === "coords") return text + " · 坐标定位";
+  return text;
+}
+
+function firstNonEmpty() {
+  for (var i = 0; i < arguments.length; i++) {
+    var v = arguments[i];
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return "";
 }
 
 function normalizeMoonStyle(value) {
