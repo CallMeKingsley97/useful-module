@@ -85,6 +85,10 @@ export default async function (ctx) {
     }
   }
 
+  if (!vm) {
+    return errorWidget("加载失败", "渲染模型为空");
+  }
+
   var refreshAfter = new Date(Date.now() + refreshMs).toISOString();
 
   if (family === "accessoryCircular") return buildCircular(vm);
