@@ -455,7 +455,7 @@ function buildSmall(vm, title, refreshAfter) {
     hstack([
       metricCard("夜窗", vm.tonightWindow, "今晚主窗口", vm.theme, { compact: true }),
       metricCard("纯暗", vm.darkDurationText, "边界 " + vm.astroEnd + " 起", vm.theme, { compact: true })
-    ], { gap: 8, alignItems: "stretch" }),
+    ], { gap: 8, alignItems: "start" }),
     sp(),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [12, 14, 10, 14]);
@@ -477,12 +477,12 @@ function buildMedium(vm, title, refreshAfter) {
     hstack([
       metricCard("月相", vm.moonLabel, "照亮 " + vm.illuminationPct + "%", vm.theme),
       metricCard("夜窗", vm.tonightWindow, vm.nightSubtitle, vm.theme)
-    ], { gap: 8, alignItems: "stretch" }),
+    ], { gap: 8, alignItems: "start" }),
     sp(8),
     hstack([
       metricCard("纯暗", vm.darkDurationText, "边界 " + vm.astroEnd + " → " + vm.astroBegin, vm.theme),
       metricCard("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.moonAgeText, vm.theme)
-    ], { gap: 8, alignItems: "stretch" }),
+    ], { gap: 8, alignItems: "start" }),
     sp(),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
@@ -508,7 +508,7 @@ function buildLarge(vm, title, refreshAfter) {
         padding: [14, 14, 14, 14],
         borderRadius: 24
       })
-    ], { gap: 10, alignItems: "stretch" }),
+    ], { gap: 10, alignItems: "start" }),
     sp(10),
     hstack([
       metricGroupPanel("今夜窗口", [
@@ -521,7 +521,7 @@ function buildLarge(vm, title, refreshAfter) {
         detailRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.theme),
         detailRow("位置", vm.locationLine, vm.theme)
       ], vm.theme, { flex: 1 })
-    ], { gap: 10, alignItems: "stretch" }),
+    ], { gap: 10, alignItems: "start" }),
     sp(),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
