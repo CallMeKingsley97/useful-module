@@ -441,21 +441,21 @@ function buildSmall(vm, title, refreshAfter) {
   return shell([
     header(title, vm, false),
     sp(8),
-    heroCard(vm, {
+    overviewPanel(vm, {
       compact: true,
-      titleSize: 17,
-      subtitleLines: 1,
-      moonSize: 54,
       showSummary: false,
-      showAgeTag: false,
-      padding: [12, 12, 12, 12],
-      borderRadius: 20
+      showLocation: false,
+      padding: [11, 12, 11, 12],
+      borderRadius: 18
     }),
     sp(8),
-    hstack([
-      metricCard("夜窗", vm.tonightWindow, "今晚主窗口", vm.theme, { compact: true }),
-      metricCard("纯暗", vm.darkDurationText, "边界 " + vm.astroEnd + " 起", vm.theme, { compact: true })
-    ], { gap: 8, alignItems: "start" }),
+    metricGroupPanel("观测摘要", [
+      detailRow("月相", vm.moonLabel + " · " + vm.illuminationPct + "%", vm.theme),
+      detailRow("夜窗", vm.tonightWindow, vm.theme)
+    ], vm.theme, {
+      padding: [10, 11, 10, 11],
+      borderRadius: 16
+    }),
     sp(),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [12, 14, 10, 14]);
@@ -465,24 +465,30 @@ function buildMedium(vm, title, refreshAfter) {
   return shell([
     header(title, vm, true),
     sp(8),
-    heroCard(vm, {
-      titleSize: 20,
-      subtitleLines: 2,
-      moonSize: 76,
+    overviewPanel(vm, {
       showSummary: true,
-      padding: [13, 14, 13, 14],
-      borderRadius: 22
+      showLocation: false,
+      padding: [12, 13, 12, 13],
+      borderRadius: 18
     }),
     sp(8),
-    hstack([
-      metricCard("月相", vm.moonLabel, "照亮 " + vm.illuminationPct + "%", vm.theme),
-      metricCard("夜窗", vm.tonightWindow, vm.nightSubtitle, vm.theme)
-    ], { gap: 8, alignItems: "start" }),
+    metricGroupPanel("今晚窗口", [
+      detailRow("夜窗", vm.tonightWindow, vm.theme),
+      detailRow("纯暗", vm.darkDurationText, vm.theme),
+      detailRow("边界", vm.astroEnd + " → " + vm.astroBegin, vm.theme)
+    ], vm.theme, {
+      padding: [11, 12, 11, 12],
+      borderRadius: 16
+    }),
     sp(8),
-    hstack([
-      metricCard("纯暗", vm.darkDurationText, "边界 " + vm.astroEnd + " → " + vm.astroBegin, vm.theme),
-      metricCard("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.moonAgeText, vm.theme)
-    ], { gap: 8, alignItems: "start" }),
+    metricGroupPanel("观测参考", [
+      detailRow("月相", vm.moonLabel + " · " + vm.illuminationPct + "%", vm.theme),
+      detailRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.theme),
+      detailRow("月龄", vm.moonAgeText, vm.theme)
+    ], vm.theme, {
+      padding: [11, 12, 11, 12],
+      borderRadius: 16
+    }),
     sp(),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
@@ -491,37 +497,40 @@ function buildMedium(vm, title, refreshAfter) {
 function buildLarge(vm, title, refreshAfter) {
   return shell([
     header(title, vm, true),
-    sp(10),
-    hstack([
-      heroCard(vm, {
-        flex: 1.08,
-        titleSize: 22,
-        subtitleLines: 2,
-        moonSize: 88,
-        showSummary: true,
-        padding: [14, 15, 14, 15],
-        borderRadius: 24
-      }),
-      moonVisualCard(vm, {
-        flex: 0.92,
-        imageSize: 98,
-        padding: [14, 14, 14, 14],
-        borderRadius: 24
-      })
-    ], { gap: 10, alignItems: "start" }),
-    sp(10),
-    hstack([
-      metricGroupPanel("今夜窗口", [
-        detailRow("夜窗", vm.tonightWindow, vm.theme),
-        detailRow("纯暗", vm.darkDurationText, vm.theme),
-        detailRow("边界", vm.astroEnd + " → " + vm.astroBegin, vm.theme)
-      ], vm.theme, { flex: 1 }),
-      metricGroupPanel("观测参考", [
-        detailRow("月相", vm.moonLabel, vm.theme),
-        detailRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.theme),
-        detailRow("位置", vm.locationLine, vm.theme)
-      ], vm.theme, { flex: 1 })
-    ], { gap: 10, alignItems: "start" }),
+    sp(8),
+    overviewPanel(vm, {
+      showSummary: true,
+      showLocation: true,
+      padding: [13, 14, 13, 14],
+      borderRadius: 18
+    }),
+    sp(8),
+    metricGroupPanel("今晚窗口", [
+      detailRow("夜窗", vm.tonightWindow, vm.theme),
+      detailRow("纯暗", vm.darkDurationText, vm.theme),
+      detailRow("边界", vm.astroEnd + " → " + vm.astroBegin, vm.theme)
+    ], vm.theme, {
+      padding: [12, 13, 12, 13],
+      borderRadius: 16
+    }),
+    sp(8),
+    metricGroupPanel("月面信息", [
+      detailRow("月相", vm.moonLabel, vm.theme),
+      detailRow("照亮", vm.illuminationPct + "%", vm.theme),
+      detailRow("月龄", vm.moonAgeText, vm.theme)
+    ], vm.theme, {
+      padding: [12, 13, 12, 13],
+      borderRadius: 16
+    }),
+    sp(8),
+    metricGroupPanel("观测参考", [
+      detailRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.theme),
+      detailRow("位置", vm.locationLine, vm.theme),
+      detailRow("来源", vm.statusText, vm.theme)
+    ], vm.theme, {
+      padding: [12, 13, 12, 13],
+      borderRadius: 16
+    }),
     sp(),
     footer(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
@@ -606,126 +615,55 @@ function moonStage(vm, size) {
   });
 }
 
-function moonVisualCard(vm, opts) {
+function overviewPanel(vm, opts) {
   opts = opts || {};
   return panel([
     hstack([
-      sectionLabel("月面观感", vm.theme),
+      sectionLabel("今晚状态", vm.theme),
       sp(),
       nightStateTag(vm)
     ], { gap: 6, alignItems: "center" }),
-    sp(12),
-    hstack([sp(), moonStage(vm, opts.imageSize || 96), sp()], { alignItems: "center" }),
-    sp(10),
-    txt(vm.moonLabel, 15, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.72, textAlign: "center" }),
-    sp(4),
-    txt(vm.moonSummary, 10, "medium", vm.theme.textMuted, {
-      maxLines: 3,
-      minScale: 0.72,
-      textAlign: "center"
+    sp(opts.compact ? 6 : 8),
+    txt(vm.nightTitle, opts.compact ? 16 : 18, "bold", "#F7FAFF", {
+      maxLines: 1,
+      minScale: 0.68
     }),
-    sp(10),
+    sp(4),
+    txt(vm.nightSubtitle, opts.compact ? 10 : 11, "medium", vm.theme.textMuted, {
+      maxLines: opts.compact ? 1 : 2,
+      minScale: 0.72
+    }),
+    opts.showLocation ? sp(6) : null,
+    opts.showLocation ? txt(vm.locationLine, 10, "medium", vm.theme.textMuted, {
+      maxLines: 1,
+      minScale: 0.72
+    }) : null,
+    opts.showSummary === false ? null : sp(6),
+    opts.showSummary === false ? null : txt(vm.moonSummary, 10, "regular", vm.theme.textMuted, {
+      maxLines: 2,
+      minScale: 0.72
+    }),
+    sp(8),
     hstack([
-      tag("照亮 " + vm.illuminationPct + "%", vm.theme.accent, vm.theme.accentSoft, 8),
-      tag(vm.moonAgeText, "#FFFFFF", vm.theme.cardSoft, 8)
-    ], { gap: 6, alignItems: "center" }),
-    sp(6),
-    txt(vm.phaseDate, 9, "medium", vm.theme.textSubtle, { maxLines: 1, minScale: 0.72 })
-  ], vm.theme, {
-    flex: opts.flex,
-    alignItems: "center",
-    padding: opts.padding || [14, 14, 14, 14],
-    borderRadius: opts.borderRadius || 22,
+      tag(vm.moonLabel, vm.theme.accent, vm.theme.accentSoft, opts.compact ? 8 : 9),
+      tag("照亮 " + vm.illuminationPct + "%", "#FFFFFF", vm.theme.cardSoft, opts.compact ? 8 : 9),
+      opts.compact ? null : tag(vm.moonAgeText, "#FFFFFF", vm.theme.cardSoft, 8)
+    ].filter(Boolean), { gap: 6, alignItems: "center" }),
+    opts.showDate ? sp(6) : null,
+    opts.showDate ? txt(vm.phaseDate, 9, "medium", vm.theme.textSubtle, {
+      maxLines: 1,
+      minScale: 0.72
+    }) : null
+  ].filter(Boolean), vm.theme, {
+    padding: opts.padding || [12, 13, 12, 13],
+    borderRadius: opts.borderRadius || 18,
     backgroundColor: vm.theme.cardStrong,
     backgroundGradient: linearGradient([
-      colorWithAlpha(vm.theme.accent, 0.18),
+      colorWithAlpha(vm.theme.accent, 0.12),
       vm.theme.cardStrong,
       vm.theme.card
     ]),
     borderColor: vm.theme.hairlineStrong
-  });
-}
-
-function heroCard(vm, opts) {
-  opts = opts || {};
-  var compact = !!opts.compact;
-  var tags = [
-    nightStateTag(vm),
-    tag(vm.moonLabel, vm.theme.accent, vm.theme.accentSoft, compact ? 8 : 9),
-    tag("照亮 " + vm.illuminationPct + "%", "#FFFFFF", vm.theme.cardSoft, compact ? 8 : 9)
-  ];
-
-  if (!compact && opts.showAgeTag !== false) {
-    tags.push(tag(vm.moonAgeText, "#FFFFFF", vm.theme.cardSoft, 8));
-  }
-
-  return panel([
-    hstack([
-      vstack([
-        sectionLabel("月相与夜窗", vm.theme),
-        sp(compact ? 6 : 8),
-        txt(vm.nightTitle, opts.titleSize || (compact ? 18 : 21), "bold", "#F7FAFF", {
-          maxLines: compact ? 2 : 1,
-          minScale: 0.58
-        }),
-        sp(4),
-        txt(vm.nightSubtitle, compact ? 10 : 11, "medium", vm.theme.textMuted, {
-          maxLines: opts.subtitleLines || (compact ? 1 : 2),
-          minScale: 0.72
-        }),
-        sp(compact ? 7 : 9),
-        hstack(tags, { gap: 6, alignItems: "center" }),
-        opts.showSummary === false ? null : sp(8),
-        opts.showSummary === false ? null : txt(vm.moonSummary, 10, "regular", compact ? vm.theme.textMuted : "#F7FAFF", {
-          maxLines: compact ? 2 : 3,
-          minScale: 0.72
-        })
-      ].filter(Boolean), { gap: 0, flex: 1, alignItems: "start" }),
-      moonStage(vm, opts.moonSize || (compact ? 56 : 78))
-    ], { gap: compact ? 10 : 12, alignItems: "center" })
-  ], vm.theme, {
-    flex: opts.flex,
-    padding: opts.padding || [13, 14, 13, 14],
-    borderRadius: opts.borderRadius || 22,
-    backgroundColor: vm.theme.cardStrong,
-    backgroundGradient: linearGradient([
-      colorWithAlpha(vm.theme.accent, compact ? 0.20 : 0.18),
-      colorWithAlpha(vm.theme.accent, 0.08),
-      vm.theme.card
-    ]),
-    borderColor: vm.theme.hairlineStrong,
-    shadowColor: vm.theme.accentGlow,
-    shadowRadius: compact ? 12 : 16,
-    shadowOffset: { x: 0, y: 8 }
-  });
-}
-
-function metricCard(title, value, detail, theme, opts) {
-  opts = opts || {};
-  var compact = !!opts.compact;
-  return panel([
-    txt(title, compact ? 8 : 9, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.72 }),
-    sp(3),
-    txt(value, compact ? 11 : 13, "bold", "#F7FAFF", {
-      maxLines: compact ? 1 : 2,
-      minScale: 0.58
-    }),
-    detail ? sp(3) : null,
-    detail ? txt(detail, compact ? 8 : 9, "medium", theme.textMuted, {
-      maxLines: compact ? 1 : 2,
-      minScale: 0.64
-    }) : null
-  ].filter(Boolean), theme, {
-    flex: opts.flex == null ? 1 : opts.flex,
-    padding: compact ? [9, 10, 9, 10] : [10, 12, 10, 12],
-    borderRadius: compact ? 16 : 18,
-    backgroundColor: compact ? theme.cardSoft : theme.card,
-    backgroundGradient: linearGradient([
-      colorWithAlpha(theme.accent, compact ? 0.10 : 0.12),
-      theme.cardSoft,
-      theme.card
-    ]),
-    borderColor: compact ? theme.hairline : theme.hairlineStrong
   });
 }
 
@@ -738,14 +676,15 @@ function metricGroupPanel(title, rows, theme, opts) {
   ], theme, {
     flex: opts.flex,
     padding: opts.padding || [12, 13, 12, 13],
-    borderRadius: opts.borderRadius || 20,
+    borderRadius: opts.borderRadius || 16,
     backgroundColor: theme.card,
     backgroundGradient: linearGradient([
-      colorWithAlpha(theme.accent, 0.10),
+      colorWithAlpha(theme.accent, 0.08),
       theme.cardSoft,
       theme.card
     ]),
-    borderColor: theme.hairlineStrong
+    borderColor: theme.hairlineStrong,
+    shadowRadius: 6
   });
 }
 
