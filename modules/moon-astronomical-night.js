@@ -21,8 +21,9 @@ export default async function (ctx) {
   var city = String(env.CITY || "").trim();
   var locationNameInput = String(env.LOCATION_NAME || "").trim();
   var tzid = String(env.TZID || "").trim();
-  var lat = toFloat(env.LAT);
-  var lon = toFloat(env.LON);
+  var coords = normalizeCoordinates(toFloat(env.LAT), toFloat(env.LON));
+  var lat = coords.lat;
+  var lon = coords.lon;
   var appId = String(env.APP_ID || "").trim();
   var appSecret = String(env.APP_SECRET || "").trim();
   var showMoonImage = !isFalse(env.SHOW_MOON_IMAGE);
@@ -39,9 +40,17 @@ export default async function (ctx) {
   var now = Date.now();
   var cacheReady = cached && cached.data && cached.signature === locationSignature;
   var cacheFresh = cacheReady && cached.ts && (now - cached.ts < refreshMs);
+  var shouldRetryLocationName = cacheFresh
+    && isFinite(lat)
+    && isFinite(lon)
+    && !locationNameInput
+    && cached
+    && cached.data
+    && cached.data.location
+    && cached.data.location.nameSource === "coords";
   var vm;
 
-  if (cacheFresh && !forceRefresh) {
+  if (cacheFresh && !forceRefresh && !shouldRetryLocationName) {
     vm = buildViewModel(reviveCachedData(cached.data), openUrl, showMoonImage);
   } else {
     try {
@@ -186,6 +195,18 @@ function buildLocationSignature(city, lat, lon, tzid) {
     return "coords:" + roundCoord(lat) + "," + roundCoord(lon) + "|" + String(tzid || "");
   }
   return "city:" + String(city || "").trim().toLowerCase() + "|" + String(tzid || "");
+}
+
+function normalizeCoordinates(lat, lon) {
+  if (!isFinite(lat) || !isFinite(lon)) {
+    return { lat: lat, lon: lon, swapped: false };
+  }
+
+  if (Math.abs(lat) > 90 && Math.abs(lon) <= 90 && Math.abs(lat) <= 180) {
+    return { lat: lon, lon: lat, swapped: true };
+  }
+
+  return { lat: lat, lon: lon, swapped: false };
 }
 
 function roundCoord(value) {
@@ -440,19 +461,12 @@ function reviveDate(value) {
 function buildSmall(vm, title, refreshAfter) {
   return shell([
     header(title, vm, false),
-    sp(8),
+    sp(6),
     overviewPanel(vm, {
       compact: true,
       showSummary: false,
       showLocation: false,
-      padding: [11, 12, 11, 12],
-      borderRadius: 18
-    }),
-    sp(8),
-    metricGroupPanel("观测摘要", [
-      detailRow("月相", vm.moonLabel + " · " + vm.illuminationPct + "%", vm.theme),
-      detailRow("夜窗", vm.tonightWindow, vm.theme)
-    ], vm.theme, {
+      showDate: false,
       padding: [10, 11, 10, 11],
       borderRadius: 16
     }),
@@ -464,29 +478,21 @@ function buildSmall(vm, title, refreshAfter) {
 function buildMedium(vm, title, refreshAfter) {
   return shell([
     header(title, vm, true),
-    sp(8),
+    sp(6),
     overviewPanel(vm, {
       showSummary: true,
       showLocation: false,
-      padding: [12, 13, 12, 13],
-      borderRadius: 18
-    }),
-    sp(8),
-    metricGroupPanel("今晚窗口", [
-      detailRow("夜窗", vm.tonightWindow, vm.theme),
-      detailRow("纯暗", vm.darkDurationText, vm.theme),
-      detailRow("边界", vm.astroEnd + " → " + vm.astroBegin, vm.theme)
-    ], vm.theme, {
+      showDate: false,
       padding: [11, 12, 11, 12],
       borderRadius: 16
     }),
-    sp(8),
-    metricGroupPanel("观测参考", [
-      detailRow("月相", vm.moonLabel + " · " + vm.illuminationPct + "%", vm.theme),
-      detailRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.theme),
-      detailRow("月龄", vm.moonAgeText, vm.theme)
+    sp(6),
+    metricGroupPanel("今晚窗口", [
+      detailRow("夜窗", vm.tonightWindow, vm.theme),
+      detailRow("纯暗", vm.darkDurationText, vm.theme),
+      detailRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.theme)
     ], vm.theme, {
-      padding: [11, 12, 11, 12],
+      padding: [10, 11, 10, 11],
       borderRadius: 16
     }),
     sp(),
@@ -497,38 +503,30 @@ function buildMedium(vm, title, refreshAfter) {
 function buildLarge(vm, title, refreshAfter) {
   return shell([
     header(title, vm, true),
-    sp(8),
+    sp(6),
     overviewPanel(vm, {
       showSummary: true,
-      showLocation: true,
-      padding: [13, 14, 13, 14],
-      borderRadius: 18
+      showLocation: false,
+      showDate: true,
+      padding: [12, 13, 12, 13],
+      borderRadius: 16
     }),
-    sp(8),
+    sp(6),
     metricGroupPanel("今晚窗口", [
       detailRow("夜窗", vm.tonightWindow, vm.theme),
       detailRow("纯暗", vm.darkDurationText, vm.theme),
       detailRow("边界", vm.astroEnd + " → " + vm.astroBegin, vm.theme)
     ], vm.theme, {
-      padding: [12, 13, 12, 13],
+      padding: [10, 11, 10, 11],
       borderRadius: 16
     }),
-    sp(8),
+    sp(6),
     metricGroupPanel("月面信息", [
       detailRow("月相", vm.moonLabel, vm.theme),
       detailRow("照亮", vm.illuminationPct + "%", vm.theme),
       detailRow("月龄", vm.moonAgeText, vm.theme)
     ], vm.theme, {
-      padding: [12, 13, 12, 13],
-      borderRadius: 16
-    }),
-    sp(8),
-    metricGroupPanel("观测参考", [
-      detailRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.theme),
-      detailRow("位置", vm.locationLine, vm.theme),
-      detailRow("来源", vm.statusText, vm.theme)
-    ], vm.theme, {
-      padding: [12, 13, 12, 13],
+      padding: [10, 11, 10, 11],
       borderRadius: 16
     }),
     sp(),
@@ -1021,7 +1019,7 @@ function formatGeoName(item) {
 }
 
 function formatCoordinateLabel(lat, lon) {
-  return "坐标 " + roundCoord(lat).toFixed(4) + ", " + roundCoord(lon).toFixed(4);
+  return "经 " + roundCoord(lon).toFixed(4) + " · 纬 " + roundCoord(lat).toFixed(4);
 }
 
 function formatLocationLine(loc) {
