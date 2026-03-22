@@ -481,19 +481,26 @@ function buildSmall(vm, title, refreshAfter) {
 function buildMedium(vm, title, refreshAfter) {
   return shell([
     header(title, vm, true, { showLocation: false }),
-    sp(4),
-    txt(vm.nightTitle, 12, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.7 }),
-    sp(4),
-    metricGrid([
-      { label: "月相", value: vm.moonLabel },
-      { label: "照亮", value: vm.illuminationPct + "%" },
-      { label: "夜窗", value: vm.tonightWindow },
-      { label: "纯暗", value: vm.darkDurationText }
+    sp(6),
+    metricGroupPanel("今晚概览", [
+      detailRow("状态", vm.nightTitle, vm.theme),
+      detailRow("夜窗", vm.tonightWindow, vm.theme),
+      detailRow("纯暗", vm.darkDurationText, vm.theme)
     ], vm.theme, {
       padding: [10, 11, 10, 11],
       borderRadius: 16
     }),
-    sp(4),
+    sp(6),
+    metricGrid([
+      { label: "月相", value: vm.moonLabel },
+      { label: "照亮", value: vm.illuminationPct + "%" },
+      { label: "日出", value: vm.sunrise },
+      { label: "日落", value: vm.sunset }
+    ], vm.theme, {
+      padding: [10, 11, 10, 11],
+      borderRadius: 16
+    }),
+    sp(6),
     txt(vm.locationShortLine, 9, "medium", vm.theme.textMuted, { maxLines: 1, minScale: 0.72 }),
     sp(),
     footerCompact(vm)
