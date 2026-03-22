@@ -399,10 +399,12 @@ function buildViewModel(data, openUrl, showMoonImage) {
   var darkDurationText = astro.darkDurationMinutes > 0 ? formatDurationMinutes(astro.darkDurationMinutes) : "--";
   var tonightWindow = formatNightWindow(astro);
   var locationLine = formatLocationLine(data.location);
+  var locationShortLine = formatLocationShort(data.location);
 
   return {
     location: data.location.name,
     locationLine: locationLine,
+    locationShortLine: locationShortLine,
     tzid: data.location.tzid,
     moonLabel: moon.label,
     moonSummary: moon.summary,
@@ -460,71 +462,63 @@ function reviveDate(value) {
 
 function buildSmall(vm, title, refreshAfter) {
   return shell([
-    header(title, vm, false),
-    sp(6),
+    header(title, vm, false, { showLocation: false }),
+    sp(4),
     overviewPanel(vm, {
       compact: true,
       showSummary: false,
       showLocation: false,
       showDate: false,
+      showTags: 1,
       padding: [10, 11, 10, 11],
       borderRadius: 16
     }),
-    sp(),
-    footer(vm)
+    sp(4),
+    footerCompact(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [12, 14, 10, 14]);
 }
 
 function buildMedium(vm, title, refreshAfter) {
   return shell([
-    header(title, vm, true),
-    sp(6),
-    overviewPanel(vm, {
-      showSummary: true,
-      showLocation: false,
-      showDate: false,
-      padding: [11, 12, 11, 12],
-      borderRadius: 16
-    }),
-    sp(6),
-    metricGroupPanel("今晚窗口", [
-      detailRow("夜窗", vm.tonightWindow, vm.theme),
-      detailRow("纯暗", vm.darkDurationText, vm.theme),
-      detailRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.theme)
+    header(title, vm, true, { showLocation: false }),
+    sp(4),
+    txt(vm.nightTitle, 12, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.7 }),
+    sp(4),
+    metricGrid([
+      { label: "月相", value: vm.moonLabel },
+      { label: "照亮", value: vm.illuminationPct + "%" },
+      { label: "夜窗", value: vm.tonightWindow },
+      { label: "纯暗", value: vm.darkDurationText }
     ], vm.theme, {
       padding: [10, 11, 10, 11],
       borderRadius: 16
     }),
+    sp(4),
+    txt(vm.locationShortLine, 9, "medium", vm.theme.textMuted, { maxLines: 1, minScale: 0.72 }),
     sp(),
-    footer(vm)
+    footerCompact(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
 }
 
 function buildLarge(vm, title, refreshAfter) {
   return shell([
-    header(title, vm, true),
+    header(title, vm, true, { showLocation: true, locationText: vm.locationShortLine }),
     sp(6),
     overviewPanel(vm, {
-      showSummary: true,
+      showSummary: false,
       showLocation: false,
       showDate: true,
+      showTags: 2,
       padding: [12, 13, 12, 13],
       borderRadius: 16
     }),
     sp(6),
-    metricGroupPanel("今晚窗口", [
+    metricGroupPanel("关键数据", [
       detailRow("夜窗", vm.tonightWindow, vm.theme),
       detailRow("纯暗", vm.darkDurationText, vm.theme),
-      detailRow("边界", vm.astroEnd + " → " + vm.astroBegin, vm.theme)
-    ], vm.theme, {
-      padding: [10, 11, 10, 11],
-      borderRadius: 16
-    }),
-    sp(6),
-    metricGroupPanel("月面信息", [
-      detailRow("月相", vm.moonLabel, vm.theme),
-      detailRow("照亮", vm.illuminationPct + "%", vm.theme),
-      detailRow("月龄", vm.moonAgeText, vm.theme)
+      detailRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.theme),
+      detailRow("天文边界", vm.astroEnd + " → " + vm.astroBegin, vm.theme),
+      detailRow("月相", vm.moonLabel + " · " + vm.illuminationPct + "%", vm.theme)
     ], vm.theme, {
       padding: [10, 11, 10, 11],
       borderRadius: 16
@@ -543,7 +537,6 @@ function buildCircular(vm) {
       sp(),
       moonStage(vm, 30),
       txt(vm.illuminationPct + "%", 11, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.7 }),
-      txt(shortNightState(vm.stateKey), 8, "medium", vm.theme.textMuted, { maxLines: 1, minScale: 0.7 }),
       sp()
     ]
   };
@@ -561,8 +554,10 @@ function buildRectangular(vm, title) {
         sp(),
         txt(vm.illuminationPct + "%", 9, "bold", vm.theme.accent)
       ], { gap: 4 }),
-      txt(vm.nightTitle, 12, "bold", "#F7FAFF", { maxLines: 1, minScale: 0.7 }),
-      txt(vm.moonLabel + " · " + vm.tonightWindow, 10, "medium", vm.theme.textMuted, { maxLines: 1, minScale: 0.7 })
+      txt(vm.moonLabel + " · " + shortNightState(vm.stateKey), 11, "semibold", "#F7FAFF", {
+        maxLines: 1,
+        minScale: 0.7
+      })
     ]
   };
 }
@@ -573,7 +568,7 @@ function buildInline(vm, title) {
     url: vm.openUrl || undefined,
     children: [
       icon(vm.moonIcon, 12, vm.theme.accent),
-      txt(" " + vm.moonLabel + " · " + shortNightState(vm.stateKey), 12, "medium", "#F7FAFF", {
+      txt(" " + vm.moonLabel + " " + vm.illuminationPct + "%", 12, "medium", "#F7FAFF", {
         maxLines: 1,
         minScale: 0.6
       })
@@ -615,6 +610,14 @@ function moonStage(vm, size) {
 
 function overviewPanel(vm, opts) {
   opts = opts || {};
+  var tags = [
+    tag(vm.moonLabel, vm.theme.accent, vm.theme.accentSoft, opts.compact ? 8 : 9),
+    tag("照亮 " + vm.illuminationPct + "%", "#FFFFFF", vm.theme.cardSoft, opts.compact ? 8 : 9),
+    tag(vm.moonAgeText, "#FFFFFF", vm.theme.cardSoft, 8)
+  ];
+  if (opts.showTags === 0) tags = [];
+  if (isFinite(opts.showTags) && opts.showTags > 0) tags = tags.slice(0, opts.showTags);
+
   return panel([
     hstack([
       sectionLabel("今晚状态", vm.theme),
@@ -641,12 +644,8 @@ function overviewPanel(vm, opts) {
       maxLines: 2,
       minScale: 0.72
     }),
-    sp(8),
-    hstack([
-      tag(vm.moonLabel, vm.theme.accent, vm.theme.accentSoft, opts.compact ? 8 : 9),
-      tag("照亮 " + vm.illuminationPct + "%", "#FFFFFF", vm.theme.cardSoft, opts.compact ? 8 : 9),
-      opts.compact ? null : tag(vm.moonAgeText, "#FFFFFF", vm.theme.cardSoft, 8)
-    ].filter(Boolean), { gap: 6, alignItems: "center" }),
+    tags.length ? sp(8) : null,
+    tags.length ? hstack(tags, { gap: 6, alignItems: "center" }) : null,
     opts.showDate ? sp(6) : null,
     opts.showDate ? txt(vm.phaseDate, 9, "medium", vm.theme.textSubtle, {
       maxLines: 1,
@@ -686,6 +685,43 @@ function metricGroupPanel(title, rows, theme, opts) {
   });
 }
 
+function metricGrid(items, theme, opts) {
+  opts = opts || {};
+  var rows = [
+    hstack([
+      metricCell(items[0], theme),
+      metricCell(items[1], theme)
+    ], { gap: 8 }),
+    hstack([
+      metricCell(items[2], theme),
+      metricCell(items[3], theme)
+    ], { gap: 8 })
+  ];
+
+  return panel([
+    vstack(rows, { gap: 8 })
+  ], theme, {
+    padding: opts.padding || [10, 11, 10, 11],
+    borderRadius: opts.borderRadius || 16,
+    backgroundColor: theme.cardStrong,
+    borderColor: theme.hairlineStrong
+  });
+}
+
+function metricCell(item, theme) {
+  return vstack([
+    txt(item.label, 8, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 }),
+    txt(item.value, 11, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.6 })
+  ], {
+    flex: 1,
+    padding: [8, 10, 8, 10],
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.hairline,
+    backgroundColor: theme.card
+  });
+}
+
 function detailRow(label, value, theme) {
   return hstack([
     txt(label, 9, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.72 }),
@@ -713,13 +749,20 @@ function shell(children, refreshAfter, url, theme, padding) {
   return widget;
 }
 
-function header(title, vm, showTime) {
+function header(title, vm, showTime, opts) {
+  opts = opts || {};
+  var showLocation = opts.showLocation !== false;
+  var locationText = opts.locationText || vm.locationLine;
+  var titleBlock = [
+    txt(title, 11, "bold", vm.theme.accent, { maxLines: 1, minScale: 0.68 })
+  ];
+  if (showLocation) {
+    titleBlock.push(txt(locationText, 9, "medium", vm.theme.textMuted, { maxLines: 1, minScale: 0.72 }));
+  }
+
   var children = [
     accentOrb(vm.theme, showTime ? 26 : 24, vm.moonIcon),
-    vstack([
-      txt(title, 11, "bold", vm.theme.accent, { maxLines: 1, minScale: 0.68 }),
-      txt(vm.locationLine, 9, "medium", vm.theme.textMuted, { maxLines: 1, minScale: 0.72 })
-    ], { gap: 1, flex: 1 })
+    vstack(titleBlock, { gap: 1, flex: 1 })
   ];
 
   if (showTime) children.push(timePill(vm.theme));
@@ -760,6 +803,22 @@ function footer(vm) {
       }
     ], { gap: 4, flex: 1, alignItems: "center" }),
     sourceTag(vm)
+  ], { gap: 6, alignItems: "center" });
+}
+
+function footerCompact(vm) {
+  return hstack([
+    hstack([
+      icon("clock.arrow.circlepath", 8, vm.theme.textSubtle),
+      {
+        type: "date",
+        date: vm.updatedAt || new Date().toISOString(),
+        format: "relative",
+        font: { size: 9, weight: "medium" },
+        textColor: vm.theme.textSubtle
+      }
+    ], { gap: 4, flex: 1, alignItems: "center" }),
+    txt(vm.statusText, 8, "semibold", vm.theme.textSubtle, { maxLines: 1, minScale: 0.7 })
   ], { gap: 6, alignItems: "center" });
 }
 
@@ -1028,6 +1087,15 @@ function formatLocationLine(loc) {
   if (!text) return "当前位置";
   if (source === "coords") return text + " · 坐标定位";
   return text;
+}
+
+function formatLocationShort(loc) {
+  var text = String(loc && loc.name ? loc.name : "").trim();
+  var source = String(loc && loc.nameSource ? loc.nameSource : "");
+  if (!text) return "当前位置";
+  if (source === "coords") return "坐标定位";
+  var shortText = text.split(" · ")[0];
+  return truncate(shortText, 12);
 }
 
 function firstNonEmpty() {
