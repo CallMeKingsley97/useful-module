@@ -463,17 +463,18 @@ function reviveDate(value) {
 function buildSmall(vm, title, refreshAfter) {
   return shell([
     header(title, vm, false, { showLocation: false }),
-    sp(4),
-    overviewPanel(vm, {
-      compact: true,
-      showSummary: false,
-      showLocation: false,
-      showDate: false,
-      showTags: 1,
-      padding: [10, 11, 10, 11],
-      borderRadius: 16
+    sp(6),
+    flatKeyValueRow("状态", shortNightState(vm.stateKey), vm.theme, {
+      valueColor: vm.theme.accent,
+      labelWidth: 30
     }),
-    sp(4),
+    flatKeyValueRow("月相", vm.moonLabel + " · " + vm.illuminationPct + "%", vm.theme, {
+      labelWidth: 30
+    }),
+    flatKeyValueRow("夜窗", vm.tonightWindow, vm.theme, {
+      labelWidth: 30
+    }),
+    sp(),
     footerCompact(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [12, 14, 10, 14]);
 }
@@ -482,26 +483,33 @@ function buildMedium(vm, title, refreshAfter) {
   return shell([
     header(title, vm, true, { showLocation: false }),
     sp(6),
-    metricGroupPanel("今晚概览", [
-      detailRow("状态", vm.nightTitle, vm.theme),
-      detailRow("夜窗", vm.tonightWindow, vm.theme),
-      detailRow("纯暗", vm.darkDurationText, vm.theme)
-    ], vm.theme, {
-      padding: [10, 11, 10, 11],
-      borderRadius: 16
+    flatKeyValueRow("状态", vm.nightTitle, vm.theme, {
+      valueColor: vm.theme.accent,
+      labelWidth: 34
     }),
-    sp(6),
-    metricGrid([
+    flatKeyValueRow("夜窗", vm.tonightWindow, vm.theme, {
+      labelWidth: 34
+    }),
+    flatTwoColumnRow(
+      { label: "纯暗", value: vm.darkDurationText },
       { label: "月相", value: vm.moonLabel },
+      vm.theme
+    ),
+    flatTwoColumnRow(
       { label: "照亮", value: vm.illuminationPct + "%" },
+      { label: "月龄", value: vm.moonAgeText },
+      vm.theme
+    ),
+    flatTwoColumnRow(
       { label: "日出", value: vm.sunrise },
-      { label: "日落", value: vm.sunset }
-    ], vm.theme, {
-      padding: [10, 11, 10, 11],
-      borderRadius: 16
+      { label: "日落", value: vm.sunset },
+      vm.theme
+    ),
+    flatKeyValueRow("位置", vm.locationShortLine, vm.theme, {
+      labelWidth: 34,
+      valueMaxLines: 1,
+      valueMinScale: 0.68
     }),
-    sp(6),
-    txt(vm.locationShortLine, 9, "medium", vm.theme.textMuted, { maxLines: 1, minScale: 0.72 }),
     sp(),
     footerCompact(vm)
   ], refreshAfter, vm.openUrl, vm.theme, [14, 16, 12, 16]);
@@ -510,25 +518,42 @@ function buildMedium(vm, title, refreshAfter) {
 function buildLarge(vm, title, refreshAfter) {
   return shell([
     header(title, vm, true, { showLocation: true, locationText: vm.locationShortLine }),
-    sp(6),
-    overviewPanel(vm, {
-      showSummary: false,
-      showLocation: false,
-      showDate: true,
-      showTags: 2,
-      padding: [12, 13, 12, 13],
-      borderRadius: 16
+    sp(8),
+    txt(vm.nightSubtitle, 11, "medium", vm.theme.textMuted, {
+      maxLines: 2,
+      minScale: 0.72
     }),
-    sp(6),
-    metricGroupPanel("关键数据", [
-      detailRow("夜窗", vm.tonightWindow, vm.theme),
-      detailRow("纯暗", vm.darkDurationText, vm.theme),
-      detailRow("日出 / 日落", vm.sunrise + " · " + vm.sunset, vm.theme),
-      detailRow("天文边界", vm.astroEnd + " → " + vm.astroBegin, vm.theme),
-      detailRow("月相", vm.moonLabel + " · " + vm.illuminationPct + "%", vm.theme)
-    ], vm.theme, {
-      padding: [10, 11, 10, 11],
-      borderRadius: 16
+    sp(8),
+    flatKeyValueRow("状态", vm.nightTitle, vm.theme, {
+      valueColor: vm.theme.accent,
+      labelWidth: 42
+    }),
+    flatKeyValueRow("夜窗", vm.tonightWindow, vm.theme, {
+      labelWidth: 42
+    }),
+    flatTwoColumnRow(
+      { label: "纯暗", value: vm.darkDurationText },
+      { label: "月相", value: vm.moonLabel },
+      vm.theme
+    ),
+    flatTwoColumnRow(
+      { label: "照亮", value: vm.illuminationPct + "%" },
+      { label: "月龄", value: vm.moonAgeText },
+      vm.theme
+    ),
+    flatTwoColumnRow(
+      { label: "日出", value: vm.sunrise },
+      { label: "日落", value: vm.sunset },
+      vm.theme
+    ),
+    flatKeyValueRow("天文边界", vm.astroEnd + " → " + vm.astroBegin, vm.theme, {
+      labelWidth: 42,
+      valueMaxLines: 1,
+      valueMinScale: 0.66
+    }),
+    flatKeyValueRow("日期", vm.phaseDate, vm.theme, {
+      labelWidth: 42,
+      valueColor: vm.theme.textMuted
     }),
     sp(),
     footer(vm)
@@ -615,132 +640,38 @@ function moonStage(vm, size) {
   });
 }
 
-function overviewPanel(vm, opts) {
+function flatKeyValueRow(label, value, theme, opts) {
   opts = opts || {};
-  var tags = [
-    tag(vm.moonLabel, vm.theme.accent, vm.theme.accentSoft, opts.compact ? 8 : 9),
-    tag("照亮 " + vm.illuminationPct + "%", "#FFFFFF", vm.theme.cardSoft, opts.compact ? 8 : 9),
-    tag(vm.moonAgeText, "#FFFFFF", vm.theme.cardSoft, 8)
-  ];
-  if (opts.showTags === 0) tags = [];
-  if (isFinite(opts.showTags) && opts.showTags > 0) tags = tags.slice(0, opts.showTags);
+  var labelWidth = opts.labelWidth || 38;
+  var valueColor = opts.valueColor || "#F7FAFF";
+  var valueMaxLines = opts.valueMaxLines || 1;
+  var valueMinScale = opts.valueMinScale || 0.7;
+  return hstack([
+    txt(label, 9, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.72, width: labelWidth }),
+    txt(value, 10, "semibold", valueColor, {
+      flex: 1,
+      maxLines: valueMaxLines,
+      minScale: valueMinScale,
+      textAlign: "right"
+    })
+  ], { gap: 8, alignItems: "center" });
+}
 
-  return panel([
-    hstack([
-      sectionLabel("今晚状态", vm.theme),
-      sp(),
-      nightStateTag(vm)
-    ], { gap: 6, alignItems: "center" }),
-    sp(opts.compact ? 6 : 8),
-    txt(vm.nightTitle, opts.compact ? 16 : 18, "bold", "#F7FAFF", {
+function flatValueBlock(item, theme) {
+  return vstack([
+    txt(item.label, 8, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.72 }),
+    txt(item.value, 10, "semibold", "#F7FAFF", {
       maxLines: 1,
       minScale: 0.68
-    }),
-    sp(4),
-    txt(vm.nightSubtitle, opts.compact ? 10 : 11, "medium", vm.theme.textMuted, {
-      maxLines: opts.compact ? 1 : 2,
-      minScale: 0.72
-    }),
-    opts.showLocation ? sp(6) : null,
-    opts.showLocation ? txt(vm.locationLine, 10, "medium", vm.theme.textMuted, {
-      maxLines: 1,
-      minScale: 0.72
-    }) : null,
-    opts.showSummary === false ? null : sp(6),
-    opts.showSummary === false ? null : txt(vm.moonSummary, 10, "regular", vm.theme.textMuted, {
-      maxLines: 2,
-      minScale: 0.72
-    }),
-    tags.length ? sp(8) : null,
-    tags.length ? hstack(tags, { gap: 6, alignItems: "center" }) : null,
-    opts.showDate ? sp(6) : null,
-    opts.showDate ? txt(vm.phaseDate, 9, "medium", vm.theme.textSubtle, {
-      maxLines: 1,
-      minScale: 0.72
-    }) : null
-  ].filter(Boolean), vm.theme, {
-    padding: opts.padding || [12, 13, 12, 13],
-    borderRadius: opts.borderRadius || 18,
-    backgroundColor: vm.theme.cardStrong,
-    backgroundGradient: linearGradient([
-      colorWithAlpha(vm.theme.accent, 0.12),
-      vm.theme.cardStrong,
-      vm.theme.card
-    ]),
-    borderColor: vm.theme.hairlineStrong
-  });
+    })
+  ], { flex: 1, gap: 2, alignItems: "start" });
 }
 
-function metricGroupPanel(title, rows, theme, opts) {
-  opts = opts || {};
-  return panel([
-    sectionLabel(title, theme),
-    sp(8),
-    vstack(rows, { gap: 7, alignItems: "start" })
-  ], theme, {
-    flex: opts.flex,
-    padding: opts.padding || [12, 13, 12, 13],
-    borderRadius: opts.borderRadius || 16,
-    backgroundColor: theme.card,
-    backgroundGradient: linearGradient([
-      colorWithAlpha(theme.accent, 0.08),
-      theme.cardSoft,
-      theme.card
-    ]),
-    borderColor: theme.hairlineStrong,
-    shadowRadius: 6
-  });
-}
-
-function metricGrid(items, theme, opts) {
-  opts = opts || {};
-  var rows = [
-    hstack([
-      metricCell(items[0], theme),
-      metricCell(items[1], theme)
-    ], { gap: 8 }),
-    hstack([
-      metricCell(items[2], theme),
-      metricCell(items[3], theme)
-    ], { gap: 8 })
-  ];
-
-  return panel([
-    vstack(rows, { gap: 8 })
-  ], theme, {
-    padding: opts.padding || [10, 11, 10, 11],
-    borderRadius: opts.borderRadius || 16,
-    backgroundColor: theme.cardStrong,
-    borderColor: theme.hairlineStrong
-  });
-}
-
-function metricCell(item, theme) {
-  return vstack([
-    txt(item.label, 8, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.7 }),
-    txt(item.value, 11, "semibold", "#F7FAFF", { maxLines: 1, minScale: 0.6 })
-  ], {
-    flex: 1,
-    padding: [8, 10, 8, 10],
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.hairline,
-    backgroundColor: theme.card
-  });
-}
-
-function detailRow(label, value, theme) {
+function flatTwoColumnRow(left, right, theme) {
   return hstack([
-    txt(label, 9, "medium", theme.textSubtle, { maxLines: 1, minScale: 0.72 }),
-    sp(8),
-    vstack([
-      txt(value, 10, "semibold", "#F7FAFF", {
-        maxLines: 1,
-        minScale: 0.6,
-        textAlign: "right"
-      })
-    ], { flex: 1, alignItems: "end" })
-  ], { gap: 8, alignItems: "center" });
+    flatValueBlock(left, theme),
+    flatValueBlock(right, theme)
+  ], { gap: 12, alignItems: "start" });
 }
 
 function shell(children, refreshAfter, url, theme, padding) {
