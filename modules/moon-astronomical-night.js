@@ -482,16 +482,17 @@ function buildSmall(vm, title, refreshAfter) {
 function buildMedium(vm, title, refreshAfter) {
   return shell([
     header(title, vm, true, { showLocation: false }),
-    sp(6),
+    sp(10),
     txt(vm.nightTitle, 14, "semibold", vm.theme.accent, {
       maxLines: 1,
       minScale: 0.72
     }),
+    sp(2),
     txt(vm.nightSubtitle, 10, "medium", vm.theme.textMuted, {
       maxLines: 1,
       minScale: 0.68
     }),
-    sp(6),
+    sp(8),
     flatKeyValueRow("夜窗", vm.tonightWindow, vm.theme, {
       labelWidth: 34
     }),
