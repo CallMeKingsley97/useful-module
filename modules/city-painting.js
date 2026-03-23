@@ -354,24 +354,15 @@ function buildSmall(view, status, nextRefresh) {
         ], { gap: 6, alignItems: "center" }),
         sp(8),
         txt("像《" + view.artwork.title + "》", 16, "bold", "#FFFFFF", {
-            maxLines: 3,
+            maxLines: 2,
             minScale: 0.58
         }),
-        sp(6),
-        txt(view.artworkMeta, 10, "medium", view.theme.textMuted, {
-            maxLines: 2,
-            minScale: 0.7
-        }),
         sp(8),
-        txt(view.weatherSummary, 10, "semibold", "#FFFFFF", {
-            maxLines: 1,
-            minScale: 0.7
-        }),
-        sp(4),
-        txt(view.artworkNote, 9, "regular", view.theme.textSubtle, {
-            maxLines: 2,
-            minScale: 0.72
-        }),
+        separator(),
+        sp(8),
+        cityFlatCompactRow("天气", view.weatherSummary, view.theme),
+        sp(5),
+        cityFlatCompactRow("作者", view.artwork.artist, view.theme),
         sp(),
         footer(status, view.theme, view.updatedAt)
     ], nextRefresh, view.theme, view.openUrl, [12, 14, 10, 14]);
@@ -381,20 +372,29 @@ function buildMedium(view, status, nextRefresh) {
     return shell([
         header(view, false),
         sp(8),
-        hstack([
-            narrativeCard(view, status, {
-                flex: 1.08,
-                showStatus: false,
-                titleSize: 20,
-                titleLines: 2,
-                reasonLines: 4
-            }),
-            vstack([
-                artworkPane(view, { compact: true, flex: 1 }),
-                weatherSnapshotCard(view, { compact: true })
-            ], { flex: 0.92, gap: 8, alignItems: "start" })
-        ], { gap: 10, alignItems: "start" }),
+        txt("像《" + view.artwork.title + "》", 18, "bold", "#FFFFFF", {
+            maxLines: 2,
+            minScale: 0.58
+        }),
+        sp(4),
+        txt(view.weatherSummary + " · " + view.mood.tag, 10, "medium", view.theme.textMuted, {
+            maxLines: 1,
+            minScale: 0.68
+        }),
         sp(8),
+        separator(),
+        sp(8),
+        cityFlatCompactRow("天气", view.weatherSummary, view.theme),
+        sp(6),
+        cityFlatCompactRow("气质", view.mood.tag + " · " + view.styleText, view.theme),
+        sp(6),
+        cityFlatCompactRow("位置", view.location.name, view.theme),
+        sp(8),
+        txt(view.artworkNote, 9, "regular", view.theme.textSubtle, {
+            maxLines: 2,
+            minScale: 0.72
+        }),
+        sp(),
         footer(status, view.theme, view.updatedAt)
     ], nextRefresh, view.theme, view.openUrl, [14, 16, 12, 16]);
 }
@@ -403,29 +403,36 @@ function buildLarge(view, status, nextRefresh) {
     return shell([
         header(view, true),
         sp(8),
-        heroCard(view, status, {
-            showStatus: false,
-            titleSize: 26,
-            titleLines: 2,
-            noteLines: 0,
-            reasonLines: 0,
-            showMeta: true,
-            showMoodTag: true,
-            showStyleTag: true
+        txt("像《" + view.artwork.title + "》", 20, "bold", "#FFFFFF", {
+            maxLines: 2,
+            minScale: 0.58
         }),
-        sp(10),
-        hstack([
-            artworkPane(view, { flex: 1 }),
-            weatherNarrativeCard(view, { flex: 1, reasonLines: 4 })
-        ], { gap: 10, alignItems: "start" }),
-        sp(10),
-        hstack([
-            compactMetric("体感", compactFeelsLike(view.weather), view.theme),
-            compactMetric("湿度", formatPercent(view.weather.humidity), view.theme),
-            compactMetric("风速", formatWind(view.weather.windSpeed), view.theme),
-            compactMetric("降水", formatPrecip(view.weather.precip), view.theme)
-        ], { gap: 8, alignItems: "start" }),
+        sp(4),
+        txt(view.artworkMeta, 10, "medium", view.theme.textMuted, {
+            maxLines: 1,
+            minScale: 0.72
+        }),
+        sp(4),
+        txt(view.artworkNote, 10, "regular", "#FFFFFF", {
+            maxLines: 2,
+            minScale: 0.72
+        }),
         sp(8),
+        separator(),
+        sp(8),
+        cityFlatExpandedRow("天气", view.weatherSummary, view.detailLine, view.theme),
+        sp(8),
+        cityFlatExpandedRow("气质", view.mood.tag, "风格 " + view.styleText, view.theme),
+        sp(8),
+        cityFlatExpandedRow("作者", view.artwork.artist, view.artwork.objectDate || view.artworkMeta, view.theme),
+        sp(8),
+        cityFlatExpandedRow("位置", view.location.name, "体感 " + compactFeelsLike(view.weather) + " · 降水 " + formatPrecip(view.weather.precip), view.theme),
+        sp(8),
+        txt(view.reasonShort, 10, "medium", view.theme.textMuted, {
+            maxLines: 2,
+            minScale: 0.72
+        }),
+        sp(),
         footer(status, view.theme, view.updatedAt)
     ], nextRefresh, view.theme, view.openUrl, [14, 16, 12, 16]);
 }
