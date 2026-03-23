@@ -483,28 +483,26 @@ function buildMedium(vm, title, refreshAfter) {
   return shell([
     header(title, vm, true, { showLocation: false }),
     sp(6),
-    flatKeyValueRow("状态", vm.nightTitle, vm.theme, {
-      valueColor: vm.theme.accent,
-      labelWidth: 34
+    txt(vm.nightTitle, 14, "semibold", vm.theme.accent, {
+      maxLines: 1,
+      minScale: 0.72
     }),
+    txt(vm.nightSubtitle, 10, "medium", vm.theme.textMuted, {
+      maxLines: 1,
+      minScale: 0.68
+    }),
+    sp(6),
     flatKeyValueRow("夜窗", vm.tonightWindow, vm.theme, {
       labelWidth: 34
     }),
-    flatTwoColumnRow(
-      { label: "纯暗", value: vm.darkDurationText },
-      { label: "月相", value: vm.moonLabel },
-      vm.theme
-    ),
-    flatTwoColumnRow(
-      { label: "照亮", value: vm.illuminationPct + "%" },
-      { label: "月龄", value: vm.moonAgeText },
-      vm.theme
-    ),
-    flatTwoColumnRow(
-      { label: "日出", value: vm.sunrise },
-      { label: "日落", value: vm.sunset },
-      vm.theme
-    ),
+    flatKeyValueRow("月相", vm.moonLabel + " · " + vm.illuminationPct + "%", vm.theme, {
+      labelWidth: 34,
+      valueMaxLines: 1,
+      valueMinScale: 0.72
+    }),
+    flatKeyValueRow("纯暗", vm.darkDurationText, vm.theme, {
+      labelWidth: 34
+    }),
     flatKeyValueRow("位置", vm.locationShortLine, vm.theme, {
       labelWidth: 34,
       valueMaxLines: 1,
