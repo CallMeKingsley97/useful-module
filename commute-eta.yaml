@@ -15,6 +15,8 @@ scriptings:
 # │                                                     │
 # │ API_KEY (必填)                                       │
 # │   高德地图 Web 服务 Key                               │
+# │   申请方式：前往 https://console.amap.com/dev/key/app │
+# │   注册/登录后创建应用，并添加 Web 服务 Key             │
 # │                                                     │
 # │ HOME (必填)                                          │
 # │   家坐标，格式 "lng,lat"                              │

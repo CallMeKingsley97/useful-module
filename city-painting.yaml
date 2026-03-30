@@ -9,9 +9,13 @@ scriptings:
 #
 # HOST (必填)
 #   和风天气 API Host，建议与 weather-commute 使用同一值；可只填域名，脚本会自动补全 https://
+#   可在和风天气控制台查看项目域名与接口域名配置
 #
 # API_KEY (必填)
 #   和风天气 API Key
+#   申请方式：前往 https://console.qweather.com/ 注册/登录
+#   创建项目后，在「凭据管理 / API Key」中生成 Key
+#   然后把控制台提供的 Host 与 Key 分别填入 HOST / API_KEY
 #
 # LOCATION (推荐)
 #   直接传和风天气 location 参数，格式与 weather-commute 完全一致：

@@ -15,6 +15,8 @@ scriptings:
 # │                                                     │
 # │ API_KEY (必填)                                       │
 # │   N2YO API Key                                       │
+# │   申请方式：前往 https://www.n2yo.com/api/ 按官网说明   │
+# │   注册/登录账号并申请 API Key                         │
 # │                                                     │
 # │ SATELLITE_ID (可选，默认 25544/ISS)                  │
 # │   卫星 ID                                            │

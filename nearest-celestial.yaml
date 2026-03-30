@@ -15,9 +15,12 @@ scriptings:
 # │                                                     │
 # │ APP_ID (必填)                                        │
 # │   AstronomyAPI App ID                                │
+# │   申请方式：前往 https://docs.astronomyapi.com/       │
+# │   注册/登录后创建 Application 获取 App ID / Secret     │
 # │                                                     │
 # │ APP_SECRET (必填)                                    │
 # │   AstronomyAPI App Secret                            │
+# │   注意：Secret 通常只显示一次，创建后请立即保存          │
 # │                                                     │
 # │ LAT/LON (必填)                                       │
 # │   位置经纬度                                         │
