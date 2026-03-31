@@ -1,0 +1,55 @@
+name: "Ninebot Vehicle"
+description: "基于 Ninebot 云端接口展示车辆电量、锁车状态、在线状态、续航与多车摘要；阶段一仅实现信息展示，不含每日签到"
+author: "kingsley"
+scriptings:
+# 环境变量 (env):
+#
+# TITLE (可选，默认 "Ninebot")
+#   小组件标题
+#
+# USERNAME (必填)
+#   Ninebot / Segway 账号用户名，通常为手机号、邮箱或登录名
+#
+# PASSWORD (必填)
+#   Ninebot / Segway 账号密码
+#
+# PRIMARY_DEVICE_ID (可选)
+#   主车优先展示标识；优先匹配 deviceId / id / vehicleId / sn
+#
+# PRIMARY_SN (可选)
+#   兼容字段；若未设置 PRIMARY_DEVICE_ID，可用 SN 指定主车
+#
+# REFRESH_MINUTES (可选，默认 15)
+#   车辆动态信息刷新间隔（分钟）
+#
+# DEVICE_LIST_REFRESH_HOURS (可选，默认 24)
+#   车辆列表缓存刷新间隔（小时）
+#
+# TOKEN_REFRESH_HOURS (可选，默认 24)
+#   登录 token 复用时长（小时）
+#
+# MAX_VEHICLES (可选，默认 5)
+#   systemMedium/systemLarge 最大展示车辆数；小尺寸与锁屏尺寸固定只展示主车
+#
+# TIMEOUT_MS (可选，默认 15000)
+#   单次接口请求超时（毫秒）
+#
+# LANG (可选，默认 "zh")
+#   获取车辆列表时传给 Ninebot 接口的语言参数
+#
+# ACCENT_COLOR (可选，默认 "#34D399")
+#   主题强调色
+#
+# FORCE_REFRESH (可选，默认 false)
+#   设为 true 时忽略缓存，强制刷新 token / 车辆列表 / 车辆动态
+#
+# OPEN_URL (可选)
+#   点击组件后的跳转链接；可填写 Ninebot App 的通用链接或网页入口
+- generic:
+    name: ninebot-widget
+    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/ninebot-widget.js
+    timeout: 30
+
+widgets:
+- name: Ninebot 车辆信息
+  script_name: ninebot-widget
