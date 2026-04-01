@@ -8,23 +8,31 @@ var DEFAULT_TIMEOUT_MS = 15000;
 var DEFAULT_REFRESH_MINUTES = 30;
 var DEFAULT_ACCENT_COLOR = "#34D399";
 var DEFAULT_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Segway v6 C 609033420";
+var DEFAULT_DAILY_CRON = "0 9 * * *";
+var DEFAULT_MANUAL_CHECKIN_SCRIPT = "ninebot-checkin-manual";
+var DEFAULT_MANUAL_STATUS_SCRIPT = "ninebot-checkin-query";
 
 export default async function (ctx) {
     if (ctx && ctx.cron) {
-        return await runScheduledCheckin(ctx);
+        return await runScheduledAction(ctx);
     }
     return await renderWidget(ctx || {});
 }
 
-async function runScheduledCheckin(ctx) {
+async function runScheduledAction(ctx) {
     var config = readConfig(ctx);
     var result;
+    var source = trim(ctx && ctx.script && ctx.script.name) || (config.action === "status" ? "manual-query" : "schedule");
 
     try {
         ensureRequiredConfig(config);
-        result = await executeCheckinFlow(ctx, config, "schedule");
+        if (config.action === "status") {
+            result = await executeStatusQuery(ctx, config, source);
+        } else {
+            result = await executeCheckinFlow(ctx, config, source);
+        }
     } catch (e) {
-        result = createFailureRecord(config, "schedule", safeMsg(e), null);
+        result = createFailureRecord(config, source, safeMsg(e), null);
         saveRecord(ctx, result);
     }
 
@@ -72,7 +80,10 @@ async function executeCheckinFlow(ctx, config, source) {
             status: "already_signed",
             title: "今日已签到",
             message: buildAlreadySignedMessage(statusData),
-            consecutiveDays: toIntOrNull(statusData.consecutiveDays),
+            consecutiveDays: pickFirstNumber([
+                toIntOrNull(statusData.consecutiveDays),
+                toIntOrNull(statusData.continuousDays)
+            ]),
             checkedAt: nowIso(),
             source: source,
             lastError: "",
@@ -113,7 +124,9 @@ async function executeCheckinFlow(ctx, config, source) {
         message: buildSuccessMessage(signPayload, statusAfterData, refreshError),
         consecutiveDays: pickFirstNumber([
             toIntOrNull(statusAfterData.consecutiveDays),
-            toIntOrNull(statusData.consecutiveDays)
+            toIntOrNull(statusAfterData.continuousDays),
+            toIntOrNull(statusData.consecutiveDays),
+            toIntOrNull(statusData.continuousDays)
         ]),
         checkedAt: nowIso(),
         source: source,
@@ -127,6 +140,39 @@ async function executeCheckinFlow(ctx, config, source) {
 
     saveRecord(ctx, successRecord);
     return successRecord;
+}
+
+async function executeStatusQuery(ctx, config, source) {
+    var statusPayload = await fetchStatus(ctx, config);
+    if (!resultOk(statusPayload)) {
+        var queryFailure = createFailureRecord(config, source, extractMessage(statusPayload) || "查询签到状态失败", {
+            status: statusPayload
+        });
+        saveRecord(ctx, queryFailure);
+        return queryFailure;
+    }
+
+    var statusData = ensureObject(statusPayload.data);
+    var signed = toInt(statusData.currentSignStatus) === 1;
+    var record = createRecord({
+        dateKey: todayKey(),
+        status: signed ? "already_signed" : "not_signed",
+        title: signed ? "今日已签到" : "今日未签到",
+        message: signed ? buildAlreadySignedMessage(statusData) : buildNotSignedMessage(statusData),
+        consecutiveDays: pickFirstNumber([
+            toIntOrNull(statusData.consecutiveDays),
+            toIntOrNull(statusData.continuousDays)
+        ]),
+        checkedAt: nowIso(),
+        source: source,
+        lastError: "",
+        raw: {
+            status: statusPayload
+        }
+    });
+
+    saveRecord(ctx, record);
+    return record;
 }
 
 async function fetchStatus(ctx, config) {
@@ -188,7 +234,11 @@ function readConfig(ctx) {
         userAgent: trim(env.USER_AGENT) || DEFAULT_USER_AGENT,
         notifyOnSuccess: isTrue(env.NOTIFY_ON_SUCCESS),
         notifyOnFailure: isTrue(env.NOTIFY_ON_FAILURE),
-        forceCheckin: isTrue(env.FORCE_CHECKIN)
+        forceCheckin: isTrue(env.FORCE_CHECKIN),
+        action: normalizeAction(env.ACTION),
+        dailyCronText: trim(env.DAILY_CRON_TEXT) || DEFAULT_DAILY_CRON,
+        manualCheckinScriptName: trim(env.MANUAL_CHECKIN_SCRIPT_NAME) || DEFAULT_MANUAL_CHECKIN_SCRIPT,
+        manualStatusScriptName: trim(env.MANUAL_STATUS_SCRIPT_NAME) || DEFAULT_MANUAL_STATUS_SCRIPT
     };
 }
 
@@ -338,34 +388,36 @@ function buildViewModel(record, config) {
     var isToday = record && record.dateKey === currentKey;
     var primary = "等待签到";
     var secondary = "等待今日 09:00 自动执行签到";
-    var badge = "待执行";
-    var symbol = "sf-symbol:clock.badge.questionmark.fill";
     var statusColor = "#FBBF24";
-    var statusBg = "rgba(251,191,36,0.16)";
+    var symbol = "sf-symbol:clock.badge.questionmark.fill";
+    var footerText = "等待今日 09:00 自动签到";
 
     if (record.status === "success" || record.status === "already_signed") {
         primary = "今日已签到";
         secondary = record.message || buildAlreadySignedMessage(record);
-        badge = "成功";
-        symbol = "sf-symbol:checkmark.seal.fill";
         statusColor = config.accentColor;
-        statusBg = "rgba(52,211,153,0.16)";
+        symbol = "sf-symbol:checkmark.seal.fill";
+        footerText = "今日签到结果已写入缓存";
     } else if (record.status === "failed") {
         primary = isToday ? "签到失败" : "上次签到失败";
         secondary = record.message || record.lastError || "未知错误";
-        badge = "失败";
-        symbol = "sf-symbol:exclamationmark.triangle.fill";
         statusColor = "#FB923C";
-        statusBg = "rgba(251,146,60,0.16)";
+        symbol = "sf-symbol:exclamationmark.triangle.fill";
+        footerText = "可手动运行签到脚本重试";
+    } else if (record.status === "not_signed") {
+        primary = "今日未签到";
+        secondary = record.message || "服务器显示今日尚未签到";
+        statusColor = "#FBBF24";
+        symbol = "sf-symbol:xmark.seal.fill";
+        footerText = "可手动运行签到脚本立即补签";
     } else if (!isToday) {
         primary = "今日未执行";
         secondary = record.checkedAt
             ? "上次：" + formatMonthDayTime(record.checkedAt) + " · " + (record.title || statusText(record.status))
             : "等待今日 09:00 自动执行签到";
-        badge = "等待";
-        symbol = "sf-symbol:clock.fill";
         statusColor = "#60A5FA";
-        statusBg = "rgba(96,165,250,0.16)";
+        symbol = "sf-symbol:clock.fill";
+        footerText = "等待今日 09:00 自动签到";
     }
 
     if ((record.status === "success" || record.status === "already_signed") && !isToday) {
@@ -373,28 +425,28 @@ function buildViewModel(record, config) {
         secondary = record.checkedAt
             ? "上次：" + formatMonthDayTime(record.checkedAt) + " · 已签到"
             : "等待今日 09:00 自动执行签到";
-        badge = "等待";
-        symbol = "sf-symbol:clock.fill";
         statusColor = "#60A5FA";
-        statusBg = "rgba(96,165,250,0.16)";
+        symbol = "sf-symbol:clock.fill";
+        footerText = "等待今日 09:00 自动签到";
     }
 
     return {
         title: config.title,
-        badge: badge,
         primary: primary,
         secondary: secondary,
         symbol: symbol,
         statusColor: statusColor,
-        statusBg: statusBg,
         theme: theme,
         streakText: record.consecutiveDays ? ("连续 " + record.consecutiveDays + " 天") : "连续天数 --",
         updatedText: record.checkedAt ? formatMonthDayTime(record.checkedAt) : "--",
-        footerText: isToday ? "今日 09:00 定时签到" : "等待今日 09:00 自动签到",
+        footerText: footerText,
         openUrl: config.openUrl,
         refreshAfter: new Date(Date.now() + config.refreshMinutes * 60000).toISOString(),
         isToday: isToday,
-        status: record.status
+        status: record.status,
+        scheduleText: "每天 " + config.dailyCronText,
+        manualCheckinText: "工具→脚本：运行 " + config.manualCheckinScriptName,
+        manualStatusText: "工具→脚本：运行 " + config.manualStatusScriptName
     };
 }
 
@@ -429,7 +481,7 @@ function buildCircular(vm) {
         centeredColumn([
             image(vm.symbol, 24, vm.statusColor),
             spacer(4),
-            text(vm.status === "failed" ? "失败" : (vm.isToday ? "已签" : "等待"), 12, "bold", "#FFFFFF"),
+            text(resolveCompactStatus(vm), 12, "bold", "#FFFFFF"),
             spacer(2),
             text(compactStreak(vm.streakText), 10, "medium", vm.theme.muted)
         ]),
@@ -439,69 +491,59 @@ function buildCircular(vm) {
 
 function buildRectangular(vm) {
     return shell([
-        row([
-            text(vm.title, 12, "bold", "#FFFFFF", { flex: 1, maxLines: 1 }),
-            badge(vm.badge, vm.statusColor, vm.statusBg)
-        ], { alignItems: "center", gap: 6 }),
-        spacer(8),
-        row([
-            image(vm.symbol, 18, vm.statusColor),
-            text(vm.primary, 14, "bold", "#FFFFFF", { flex: 1, maxLines: 1 })
-        ], { alignItems: "center", gap: 8 }),
+        text(vm.title, 12, "bold", "#FFFFFF", { maxLines: 1 }),
         spacer(4),
-        text(vm.secondary, 11, "medium", vm.theme.muted, { maxLines: 2 }),
-        spacer(),
-        text(vm.streakText + " · " + shortUpdated(vm.updatedText), 10, "medium", vm.theme.subtle, { maxLines: 1 })
+        separator(vm.theme),
+        spacer(6),
+        infoRow("状态", vm.primary, vm.theme, { valueColor: vm.statusColor, valueWeight: "bold", maxLines: 1 }),
+        spacer(4),
+        infoRow("结果", vm.secondary, vm.theme, { maxLines: 2 }),
+        spacer(4),
+        infoRow("最近", vm.updatedText, vm.theme, { maxLines: 1 })
     ], vm, [12, 12, 12, 12]);
 }
 
 function buildSmall(vm) {
     return shell([
-        row([
-            text(vm.title, 13, "bold", "#FFFFFF", { flex: 1, maxLines: 1 }),
-            badge(vm.badge, vm.statusColor, vm.statusBg)
-        ], { alignItems: "center", gap: 8 }),
-        spacer(10),
-        row([
-            image(vm.symbol, 22, vm.statusColor),
-            column([
-                text(vm.primary, 18, "bold", "#FFFFFF", { maxLines: 1 }),
-                spacer(2),
-                text(vm.secondary, 11, "medium", vm.theme.muted, { maxLines: 3 })
-            ], { flex: 1, gap: 0 })
-        ], { alignItems: "start", gap: 10 }),
-        spacer(),
-        statBlock("连续签到", vm.streakText, vm.theme),
+        text(vm.title, 13, "bold", "#FFFFFF", { maxLines: 1 }),
+        spacer(4),
+        text(vm.footerText, 10, "medium", vm.theme.subtle, { maxLines: 1 }),
         spacer(8),
+        separator(vm.theme),
+        spacer(8),
+        infoRow("状态", vm.primary, vm.theme, { valueColor: vm.statusColor, valueWeight: "bold", maxLines: 1 }),
+        spacer(6),
+        infoRow("结果", vm.secondary, vm.theme, { maxLines: 3 }),
+        spacer(6),
+        infoRow("连签", vm.streakText, vm.theme, { maxLines: 1 }),
+        spacer(6),
+        infoRow("最近", vm.updatedText, vm.theme, { maxLines: 1 }),
+        spacer(),
         footer(vm)
     ], vm, [14, 14, 14, 14]);
 }
 
 function buildMedium(vm) {
     return shell([
-        row([
-            column([
-                text(vm.title, 15, "bold", "#FFFFFF", { maxLines: 1 }),
-                spacer(2),
-                text(vm.footerText, 10, "medium", vm.theme.subtle, { maxLines: 1 })
-            ], { flex: 1, gap: 0 }),
-            badge(vm.badge, vm.statusColor, vm.statusBg)
-        ], { alignItems: "start", gap: 10 }),
-        spacer(12),
-        row([
-            card([
-                image(vm.symbol, 22, vm.statusColor),
-                spacer(8),
-                text(vm.primary, 18, "bold", "#FFFFFF", { maxLines: 1 }),
-                spacer(4),
-                text(vm.secondary, 11, "medium", vm.theme.muted, { maxLines: 4 })
-            ], vm.theme, { flex: 2 }),
-            card([
-                statBlock("连续签到", vm.streakText, vm.theme),
-                spacer(10),
-                statBlock("最近执行", shortUpdated(vm.updatedText), vm.theme)
-            ], vm.theme, { flex: 1 })
-        ], { gap: 10, alignItems: "center" }),
+        text(vm.title, 15, "bold", "#FFFFFF", { maxLines: 1 }),
+        spacer(2),
+        text("签到结果平铺展示，不做内嵌卡片", 10, "medium", vm.theme.subtle, { maxLines: 1 }),
+        spacer(8),
+        separator(vm.theme),
+        spacer(8),
+        infoRow("状态", vm.primary, vm.theme, { valueColor: vm.statusColor, valueWeight: "bold", maxLines: 1 }),
+        spacer(6),
+        infoRow("结果", vm.secondary, vm.theme, { maxLines: 3 }),
+        spacer(6),
+        infoRow("连签", vm.streakText, vm.theme, { maxLines: 1 }),
+        spacer(6),
+        infoRow("最近", vm.updatedText, vm.theme, { maxLines: 1 }),
+        spacer(6),
+        infoRow("定时", vm.scheduleText, vm.theme, { maxLines: 1 }),
+        spacer(6),
+        infoRow("手动签", vm.manualCheckinText, vm.theme, { maxLines: 2 }),
+        spacer(6),
+        infoRow("手动查", vm.manualStatusText, vm.theme, { maxLines: 2 }),
         spacer(),
         footer(vm)
     ], vm, [14, 14, 14, 14]);
@@ -509,31 +551,27 @@ function buildMedium(vm) {
 
 function buildLarge(vm) {
     return shell([
-        row([
-            column([
-                text(vm.title, 16, "bold", "#FFFFFF", { maxLines: 1 }),
-                spacer(2),
-                text("每日 09:00 自动签到", 11, "medium", vm.theme.subtle)
-            ], { flex: 1, gap: 0 }),
-            badge(vm.badge, vm.statusColor, vm.statusBg)
-        ], { alignItems: "center", gap: 10 }),
-        spacer(12),
-        card([
-            row([
-                image(vm.symbol, 24, vm.statusColor),
-                column([
-                    text(vm.primary, 20, "bold", "#FFFFFF", { maxLines: 1 }),
-                    spacer(4),
-                    text(vm.secondary, 12, "medium", vm.theme.muted, { maxLines: 4 })
-                ], { flex: 1, gap: 0 })
-            ], { gap: 10, alignItems: "start" })
-        ], vm.theme),
+        text(vm.title, 16, "bold", "#FFFFFF", { maxLines: 1 }),
+        spacer(2),
+        text("主屏全部改为平铺信息行，避免内嵌卡片和重叠", 10, "medium", vm.theme.subtle, { maxLines: 1 }),
+        spacer(8),
+        separator(vm.theme),
         spacer(10),
-        row([
-            card([statBlock("连续签到", vm.streakText, vm.theme)], vm.theme, { flex: 1 }),
-            card([statBlock("最近执行", shortUpdated(vm.updatedText), vm.theme)], vm.theme, { flex: 1 }),
-            card([statBlock("状态", vm.isToday ? vm.badge : "等待", vm.theme)], vm.theme, { flex: 1 })
-        ], { gap: 10, alignItems: "center" }),
+        infoRow("状态", vm.primary, vm.theme, { valueColor: vm.statusColor, valueWeight: "bold", maxLines: 1 }),
+        spacer(6),
+        infoRow("结果", vm.secondary, vm.theme, { maxLines: 4 }),
+        spacer(6),
+        infoRow("连签", vm.streakText, vm.theme, { maxLines: 1 }),
+        spacer(6),
+        infoRow("最近", vm.updatedText, vm.theme, { maxLines: 1 }),
+        spacer(6),
+        infoRow("定时", vm.scheduleText, vm.theme, { maxLines: 1 }),
+        spacer(6),
+        infoRow("手动签", vm.manualCheckinText, vm.theme, { maxLines: 2 }),
+        spacer(6),
+        infoRow("手动查", vm.manualStatusText, vm.theme, { maxLines: 2 }),
+        spacer(6),
+        infoRow("说明", vm.footerText, vm.theme, { maxLines: 2 }),
         spacer(),
         footer(vm)
     ], vm, [16, 16, 16, 16]);
@@ -559,44 +597,35 @@ function shell(children, vm, padding) {
 function footer(vm) {
     return row([
         text(vm.footerText, 10, "medium", vm.theme.subtle, { flex: 1, maxLines: 1 }),
-        text(shortUpdated(vm.updatedText), 10, "medium", vm.theme.subtle, { maxLines: 1 })
+        text(vm.updatedText, 10, "medium", vm.theme.subtle, { maxLines: 1 })
     ], { alignItems: "center", gap: 8 });
 }
 
-function statBlock(label, value, theme) {
-    return column([
-        text(label, 10, "medium", theme.subtle, { maxLines: 1 }),
-        spacer(4),
-        text(value, 13, "bold", "#FFFFFF", { maxLines: 2 })
-    ], { gap: 0, alignItems: "start" });
+function infoRow(label, value, theme, options) {
+    options = options || {};
+    return row([
+        {
+            type: "stack",
+            direction: "row",
+            width: options.labelWidth || 44,
+            children: [
+                text(label, 10, "medium", theme.subtle, { maxLines: 1 })
+            ]
+        },
+        text(value, options.valueSize || 12, options.valueWeight || "semibold", options.valueColor || "#FFFFFF", {
+            flex: 1,
+            maxLines: options.maxLines || 2,
+            minScale: 0.72
+        })
+    ], { alignItems: options.alignItems || "start", gap: 8 });
 }
 
-function card(children, theme, extra) {
-    var options = extra || {};
+function separator(theme) {
     return {
         type: "stack",
-        direction: "column",
-        gap: 0,
-        padding: 12,
-        borderRadius: 14,
-        backgroundColor: theme.panel,
-        borderWidth: 1,
-        borderColor: theme.line,
-        flex: options.flex || 0,
-        children: children
-    };
-}
-
-function badge(textValue, color, backgroundColor) {
-    return {
-        type: "stack",
-        direction: "row",
-        padding: [4, 8, 4, 8],
-        borderRadius: 999,
-        backgroundColor: backgroundColor,
-        children: [
-            text(textValue, 10, "bold", color, { maxLines: 1 })
-        ]
+        height: 1,
+        backgroundColor: theme.line,
+        children: []
     };
 }
 
@@ -607,18 +636,6 @@ function row(children, options) {
         direction: "row",
         gap: options.gap || 0,
         alignItems: options.alignItems || "center",
-        flex: options.flex || 0,
-        children: children
-    };
-}
-
-function column(children, options) {
-    options = options || {};
-    return {
-        type: "stack",
-        direction: "column",
-        gap: options.gap || 0,
-        alignItems: options.alignItems || "start",
         flex: options.flex || 0,
         children: children
     };
@@ -672,7 +689,6 @@ function resolveTheme(accent) {
     return {
         accent: accent,
         gradient: ["#09111F", "#0F172A", "#1B263B"],
-        panel: "rgba(255,255,255,0.06)",
         text: "#FFFFFF",
         muted: "rgba(255,255,255,0.78)",
         subtle: "rgba(255,255,255,0.50)",
@@ -683,6 +699,9 @@ function resolveTheme(accent) {
 function buildInlineText(vm) {
     if (vm.status === "failed" && vm.isToday) {
         return clipText(vm.title + " 失败: " + vm.secondary, 28);
+    }
+    if (vm.status === "not_signed" && vm.isToday) {
+        return clipText(vm.title + " 未签到 · 可手动补签", 28);
     }
     if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) {
         return clipText(vm.title + " 已签到 · " + compactStreak(vm.streakText), 28);
@@ -697,6 +716,15 @@ function buildAlreadySignedMessage(data) {
     ]);
     if (days) return "服务器显示今日已签到，连续 " + days + " 天";
     return "服务器显示今日已完成签到";
+}
+
+function buildNotSignedMessage(data) {
+    var days = pickFirstNumber([
+        toIntOrNull(data && data.consecutiveDays),
+        toIntOrNull(data && data.continuousDays)
+    ]);
+    if (days) return "服务器显示今日未签到，当前连签记录 " + days + " 天";
+    return "服务器显示今日尚未签到";
 }
 
 function buildSuccessMessage(signPayload, statusAfterData, refreshError) {
@@ -744,6 +772,13 @@ function extractRewardText(payload) {
     ]);
     if (score) return "奖励 " + score;
     return "";
+}
+
+function resolveCompactStatus(vm) {
+    if (vm.status === "failed") return "失败";
+    if (vm.status === "not_signed") return "未签";
+    if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) return "已签";
+    return "等待";
 }
 
 function resultOk(payload) {
@@ -825,10 +860,6 @@ function formatMonthDayTime(iso) {
     return pad2(date.getMonth() + 1) + "-" + pad2(date.getDate()) + " " + pad2(date.getHours()) + ":" + pad2(date.getMinutes());
 }
 
-function shortUpdated(value) {
-    return clipText(value || "--", 18);
-}
-
 function compactStreak(textValue) {
     return clipText(String(textValue || "--").replace("连续 ", "连签").replace(" 天", "天"), 10);
 }
@@ -839,9 +870,16 @@ function clipText(value, maxLength) {
     return textValue.slice(0, Math.max(0, maxLength - 1)) + "…";
 }
 
+function normalizeAction(value) {
+    var normalized = trim(value).toLowerCase();
+    if (normalized === "status" || normalized === "query" || normalized === "query-status") return "status";
+    return "checkin";
+}
+
 function statusText(status) {
     if (status === "success") return "签到成功";
     if (status === "already_signed") return "今日已签到";
+    if (status === "not_signed") return "今日未签到";
     if (status === "failed") return "签到失败";
     return "等待签到";
 }
