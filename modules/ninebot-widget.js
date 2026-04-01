@@ -527,7 +527,6 @@ function buildMedium(vm) {
     return shell([
         text(vm.title, 15, "bold", "#FFFFFF", { maxLines: 1 }),
         spacer(2),
-        text("签到结果平铺展示，不做内嵌卡片", 10, "medium", vm.theme.subtle, { maxLines: 1 }),
         spacer(8),
         separator(vm.theme),
         spacer(8),
@@ -553,7 +552,6 @@ function buildLarge(vm) {
     return shell([
         text(vm.title, 16, "bold", "#FFFFFF", { maxLines: 1 }),
         spacer(2),
-        text("主屏全部改为平铺信息行，避免内嵌卡片和重叠", 10, "medium", vm.theme.subtle, { maxLines: 1 }),
         spacer(8),
         separator(vm.theme),
         spacer(10),
