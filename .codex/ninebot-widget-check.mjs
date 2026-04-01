@@ -501,7 +501,7 @@ function buildMedium(vm) {
                 spacer(10),
                 statBlock("最近执行", shortUpdated(vm.updatedText), vm.theme)
             ], vm.theme, { flex: 1 })
-        ], { gap: 10, alignItems: "center" }),
+        ], { gap: 10, alignItems: "stretch" }),
         spacer(),
         footer(vm)
     ], vm, [14, 14, 14, 14]);
@@ -533,7 +533,7 @@ function buildLarge(vm) {
             card([statBlock("连续签到", vm.streakText, vm.theme)], vm.theme, { flex: 1 }),
             card([statBlock("最近执行", shortUpdated(vm.updatedText), vm.theme)], vm.theme, { flex: 1 }),
             card([statBlock("状态", vm.isToday ? vm.badge : "等待", vm.theme)], vm.theme, { flex: 1 })
-        ], { gap: 10, alignItems: "center" }),
+        ], { gap: 10, alignItems: "stretch" }),
         spacer(),
         footer(vm)
     ], vm, [16, 16, 16, 16]);
