@@ -505,46 +505,56 @@ function buildRectangular(vm) {
 
 function buildSmall(vm) {
     return shell([
-        text(vm.title, 13, "bold", "#FFFFFF", { maxLines: 1 }),
-        spacer(4),
-        text(vm.footerText, 10, "medium", vm.theme.subtle, { maxLines: 1 }),
-        spacer(8),
-        separator(vm.theme),
-        spacer(8),
-        infoRow("状态", vm.primary, vm.theme, { valueColor: vm.statusColor, valueWeight: "bold", maxLines: 1 }),
+        text(vm.title, 12, "bold", "#FFFFFF", { maxLines: 1, minScale: 0.78 }),
         spacer(6),
-        infoRow("结果", vm.secondary, vm.theme, { maxLines: 3 }),
+        row([
+            image(vm.symbol, 15, vm.statusColor),
+            text(vm.primary, 13, "bold", vm.statusColor, { flex: 1, maxLines: 1, minScale: 0.78 })
+        ], { alignItems: "center", gap: 6 }),
         spacer(6),
-        infoRow("连签", vm.streakText, vm.theme, { maxLines: 1 }),
+        text(compactSecondary(vm, 34), 11, "medium", "#FFFFFF", { maxLines: 2, minScale: 0.78 }),
         spacer(6),
-        infoRow("最近", vm.updatedText, vm.theme, { maxLines: 1 }),
+        text(buildSmallMetaText(vm), 10, "medium", vm.theme.muted, { maxLines: 1, minScale: 0.8 }),
         spacer(),
-        footer(vm)
-    ], vm, [14, 14, 14, 14]);
+        text(buildCompactFooterText(vm, "small"), 10, "medium", vm.theme.subtle, { maxLines: 1, minScale: 0.8 })
+    ], vm, [12, 12, 12, 12]);
 }
 
 function buildMedium(vm) {
     return shell([
-        text(vm.title, 15, "bold", "#FFFFFF", { maxLines: 1 }),
-        spacer(2),
-        spacer(8),
+        text(vm.title, 15, "bold", "#FFFFFF", { maxLines: 1, minScale: 0.78 }),
+        spacer(4),
         separator(vm.theme),
-        spacer(8),
-        infoRow("状态", vm.primary, vm.theme, { valueColor: vm.statusColor, valueWeight: "bold", maxLines: 1 }),
         spacer(6),
-        infoRow("结果", vm.secondary, vm.theme, { maxLines: 3 }),
-        spacer(6),
-        infoRow("连签", vm.streakText, vm.theme, { maxLines: 1 }),
-        spacer(6),
-        infoRow("最近", vm.updatedText, vm.theme, { maxLines: 1 }),
-        spacer(6),
-        infoRow("定时", vm.scheduleText, vm.theme, { maxLines: 1 }),
-        spacer(6),
-        infoRow("手动签", vm.manualCheckinText, vm.theme, { maxLines: 2 }),
-        spacer(6),
-        infoRow("手动查", vm.manualStatusText, vm.theme, { maxLines: 2 }),
-        spacer(),
-        footer(vm)
+        infoRow("状态", vm.primary, vm.theme, {
+            labelWidth: 32,
+            valueColor: vm.statusColor,
+            valueWeight: "bold",
+            valueSize: 13,
+            maxLines: 1,
+            minScale: 0.76
+        }),
+        spacer(4),
+        infoRow("结果", compactSecondary(vm, 48), vm.theme, {
+            labelWidth: 32,
+            valueSize: 11,
+            maxLines: 2,
+            minScale: 0.78
+        }),
+        spacer(4),
+        infoRow("连签", compactStreak(vm.streakText), vm.theme, {
+            labelWidth: 32,
+            valueSize: 11,
+            maxLines: 1,
+            minScale: 0.8
+        }),
+        spacer(4),
+        infoRow("最近", vm.updatedText, vm.theme, {
+            labelWidth: 32,
+            valueSize: 11,
+            maxLines: 1,
+            minScale: 0.82
+        })
     ], vm, [14, 14, 14, 14]);
 }
 
@@ -594,9 +604,40 @@ function shell(children, vm, padding) {
 
 function footer(vm) {
     return row([
-        text(vm.footerText, 10, "medium", vm.theme.subtle, { flex: 1, maxLines: 1 }),
-        text(vm.updatedText, 10, "medium", vm.theme.subtle, { maxLines: 1 })
+        text(vm.footerText, 10, "medium", vm.theme.subtle, { flex: 1, maxLines: 1, minScale: 0.78 }),
+        text(vm.updatedText, 10, "medium", vm.theme.subtle, { maxLines: 1, minScale: 0.82 })
     ], { alignItems: "center", gap: 8 });
+}
+
+function buildSmallMetaText(vm) {
+    var streak = compactStreak(vm.streakText);
+    if ((vm.status === "success" || vm.status === "already_signed" || vm.status === "not_signed") && streak !== "连签 --") {
+        return streak;
+    }
+    return "更新 " + vm.updatedText;
+}
+
+function buildCompactFooterText(vm, family) {
+    if (vm.status === "success" || vm.status === "already_signed") {
+        return vm.isToday ? "今日签到已完成" : "等待今日签到";
+    }
+    if (vm.status === "failed") {
+        return family === "small" ? "可手动重试" : "稍后可手动重试";
+    }
+    if (vm.status === "not_signed") {
+        return "可手动补签";
+    }
+    return "09:00 自动签到";
+}
+
+function compactSecondary(vm, maxLength) {
+    var value = trim(vm && vm.secondary);
+    if (!value) return "--";
+    value = value
+        .replace(/^服务器显示/, "")
+        .replace(/^等待今日 09:00 自动执行签到$/, "等待 09:00 自动签到")
+        .replace(/^状态刷新提示：/, "刷新提示：");
+    return clipText(value, maxLength || 40);
 }
 
 function infoRow(label, value, theme, options) {
@@ -613,7 +654,7 @@ function infoRow(label, value, theme, options) {
         text(value, options.valueSize || 12, options.valueWeight || "semibold", options.valueColor || "#FFFFFF", {
             flex: 1,
             maxLines: options.maxLines || 2,
-            minScale: 0.72
+            minScale: options.minScale || 0.72
         })
     ], { alignItems: options.alignItems || "start", gap: 8 });
 }
@@ -859,7 +900,9 @@ function formatMonthDayTime(iso) {
 }
 
 function compactStreak(textValue) {
-    return clipText(String(textValue || "--").replace("连续 ", "连签").replace(" 天", "天"), 10);
+    var normalized = String(textValue || "--");
+    if (normalized === "连续天数 --") return "连签 --";
+    return clipText(normalized.replace("连续 ", "连签").replace(" 天", "天"), 10);
 }
 
 function clipText(value, maxLength) {

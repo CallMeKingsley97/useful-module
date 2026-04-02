@@ -51,31 +51,55 @@ const path = require('path');
         };
     }
 
-    const widgetCtx = createCtx({
-        storage: createStore({
-            ninebot_checkin_v2: {
-                dateKey: new Date().toISOString().slice(0, 10),
-                status: 'failed',
-                title: '签到失败',
-                message: 'Authorization 已过期',
-                checkedAt: new Date().toISOString(),
-                source: 'schedule',
-                consecutiveDays: null,
-                lastError: 'Authorization 已过期'
-            }
-        })
-    });
+    const widgetSeed = {
+        ninebot_checkin_v2: {
+            dateKey: new Date().toISOString().slice(0, 10),
+            status: 'failed',
+            title: '签到失败',
+            message: 'Authorization 已过期',
+            checkedAt: new Date().toISOString(),
+            source: 'schedule',
+            consecutiveDays: null,
+            lastError: 'Authorization 已过期'
+        }
+    };
 
-    const widgetResult = await script(widgetCtx);
-    if (!widgetResult || widgetResult.type !== 'widget') {
-        throw new Error('widget 渲染结果不合法');
+    const mediumWidgetCtx = createCtx({
+        widgetFamily: 'systemMedium',
+        storage: createStore(widgetSeed)
+    });
+    const mediumWidgetResult = await script(mediumWidgetCtx);
+    if (!mediumWidgetResult || mediumWidgetResult.type !== 'widget') {
+        throw new Error('medium widget 渲染结果不合法');
     }
-    const widgetText = JSON.stringify(widgetResult);
-    if (widgetText.includes('backgroundColor":"rgba(255,255,255,0.06)')) {
+    const mediumText = JSON.stringify(mediumWidgetResult);
+    if (mediumText.includes('backgroundColor":"rgba(255,255,255,0.06)')) {
         throw new Error('主屏仍存在卡片式背景块');
     }
-    if (!widgetText.includes('ninebot-checkin-manual') || !widgetText.includes('ninebot-checkin-query')) {
-        throw new Error('widget 未展示手动脚本提示');
+    if (mediumText.includes('ninebot-checkin-manual') || mediumText.includes('ninebot-checkin-query')) {
+        throw new Error('medium widget 仍展示手动脚本提示');
+    }
+    if (!mediumText.includes('"text":"状态"') || !mediumText.includes('"text":"结果"')) {
+        throw new Error('medium widget 未保留核心状态信息');
+    }
+
+    const smallWidgetCtx = createCtx({
+        widgetFamily: 'systemSmall',
+        storage: createStore(widgetSeed)
+    });
+    const smallWidgetResult = await script(smallWidgetCtx);
+    if (!smallWidgetResult || smallWidgetResult.type !== 'widget') {
+        throw new Error('small widget 渲染结果不合法');
+    }
+    const smallText = JSON.stringify(smallWidgetResult);
+    if (smallText.includes('ninebot-checkin-manual') || smallText.includes('ninebot-checkin-query')) {
+        throw new Error('small widget 仍展示手动脚本提示');
+    }
+    if (smallText.includes('"text":"最近"') || smallText.includes('"text":"定时"')) {
+        throw new Error('small widget 仍保留低优先级信息行');
+    }
+    if (!smallText.includes('Authorization 已过期')) {
+        throw new Error('small widget 未保留核心结果摘要');
     }
 
     let successNotify = false;
