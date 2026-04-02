@@ -479,9 +479,9 @@ function buildCircular(vm) {
     return shell([
         spacer(),
         centeredColumn([
-            image(vm.symbol, 24, vm.statusColor),
+            image(vm.symbol, 24, vm.statusColor, { shadowColor: vm.theme.iconGlow, shadowRadius: 8 }),
             spacer(4),
-            text(resolveCompactStatus(vm), 12, "bold", "#FFFFFF"),
+            text(resolveCompactStatus(vm), 12, "bold", vm.theme.text, { shadowColor: vm.theme.titleShadow, shadowRadius: 6 }),
             spacer(2),
             text(compactStreak(vm.streakText), 10, "medium", vm.theme.muted)
         ]),
@@ -491,7 +491,7 @@ function buildCircular(vm) {
 
 function buildRectangular(vm) {
     return shell([
-        text(vm.title, 12, "bold", "#FFFFFF", { maxLines: 1 }),
+        text(vm.title, 12, "bold", vm.theme.text, { maxLines: 1, shadowColor: vm.theme.titleShadow, shadowRadius: 5 }),
         spacer(4),
         separator(vm.theme),
         spacer(6),
@@ -505,24 +505,24 @@ function buildRectangular(vm) {
 
 function buildSmall(vm) {
     return shell([
-        text(vm.title, 12, "bold", "#FFFFFF", { maxLines: 1, minScale: 0.78 }),
+        text(vm.title, 12, "bold", vm.theme.text, { maxLines: 1, minScale: 0.78, shadowColor: vm.theme.titleShadow, shadowRadius: 5 }),
         spacer(6),
         row([
-            image(vm.symbol, 15, vm.statusColor),
-            text(vm.primary, 13, "bold", vm.statusColor, { flex: 1, maxLines: 1, minScale: 0.78 })
+            image(vm.symbol, 15, vm.statusColor, { shadowColor: vm.theme.iconGlow, shadowRadius: 6 }),
+            text(vm.primary, 13, "bold", vm.statusColor, { flex: 1, maxLines: 1, minScale: 0.78, shadowColor: vm.theme.titleShadow, shadowRadius: 4 })
         ], { alignItems: "center", gap: 6 }),
         spacer(6),
-        text(compactSecondary(vm, 34), 11, "medium", "#FFFFFF", { maxLines: 2, minScale: 0.78 }),
+        text(compactSecondary(vm, 34), 11, "medium", vm.theme.text, { maxLines: 2, minScale: 0.78 }),
         spacer(6),
         text(buildSmallMetaText(vm), 10, "medium", vm.theme.muted, { maxLines: 1, minScale: 0.8 }),
         spacer(),
-        text(buildCompactFooterText(vm, "small"), 10, "medium", vm.theme.subtle, { maxLines: 1, minScale: 0.8 })
+        text(buildCompactFooterText(vm, "small"), 10, "medium", vm.theme.footer, { maxLines: 1, minScale: 0.8 })
     ], vm, [12, 12, 12, 12]);
 }
 
 function buildMedium(vm) {
     return shell([
-        text(vm.title, 15, "bold", "#FFFFFF", { maxLines: 1, minScale: 0.78 }),
+        text(vm.title, 15, "bold", vm.theme.text, { maxLines: 1, minScale: 0.78, shadowColor: vm.theme.titleShadow, shadowRadius: 6 }),
         spacer(4),
         separator(vm.theme),
         spacer(6),
@@ -560,7 +560,7 @@ function buildMedium(vm) {
 
 function buildLarge(vm) {
     return shell([
-        text(vm.title, 16, "bold", "#FFFFFF", { maxLines: 1 }),
+        text(vm.title, 16, "bold", vm.theme.text, { maxLines: 1, shadowColor: vm.theme.titleShadow, shadowRadius: 6 }),
         spacer(2),
         spacer(8),
         separator(vm.theme),
@@ -592,6 +592,7 @@ function shell(children, vm, padding) {
         refreshAfter: vm.refreshAfter,
         padding: padding || 14,
         gap: 0,
+        backgroundColor: vm.theme.base,
         backgroundGradient: {
             type: "linear",
             colors: vm.theme.gradient,
@@ -604,7 +605,7 @@ function shell(children, vm, padding) {
 
 function footer(vm) {
     return row([
-        text(vm.footerText, 10, "medium", vm.theme.subtle, { flex: 1, maxLines: 1, minScale: 0.78 }),
+        text(vm.footerText, 10, "medium", vm.theme.footer, { flex: 1, maxLines: 1, minScale: 0.78 }),
         text(vm.updatedText, 10, "medium", vm.theme.subtle, { maxLines: 1, minScale: 0.82 })
     ], { alignItems: "center", gap: 8 });
 }
@@ -651,7 +652,7 @@ function infoRow(label, value, theme, options) {
                 text(label, 10, "medium", theme.subtle, { maxLines: 1 })
             ]
         },
-        text(value, options.valueSize || 12, options.valueWeight || "semibold", options.valueColor || "#FFFFFF", {
+        text(value, options.valueSize || 12, options.valueWeight || "semibold", options.valueColor || theme.text, {
             flex: 1,
             maxLines: options.maxLines || 2,
             minScale: options.minScale || 0.72
@@ -663,7 +664,12 @@ function separator(theme) {
     return {
         type: "stack",
         height: 1,
-        backgroundColor: theme.line,
+        backgroundGradient: {
+            type: "linear",
+            colors: [theme.lineFade, theme.line, theme.lineFade],
+            startPoint: { x: 0, y: 0.5 },
+            endPoint: { x: 1, y: 0.5 }
+        },
         children: []
     };
 }
@@ -709,14 +715,21 @@ function text(value, size, weight, color, extra) {
     return node;
 }
 
-function image(src, size, color) {
-    return {
+function image(src, size, color, extra) {
+    var node = {
         type: "image",
         src: src,
         width: size,
         height: size,
         color: color
     };
+
+    extra = extra || {};
+    var keys = Object.keys(extra);
+    for (var i = 0; i < keys.length; i++) {
+        node[keys[i]] = extra[keys[i]];
+    }
+    return node;
 }
 
 function spacer(value) {
@@ -725,14 +738,38 @@ function spacer(value) {
 }
 
 function resolveTheme(accent) {
+    var accentGlow = hexToRgba(accent, 0.34, "rgba(52,211,153,0.34)");
+    var accentSoft = hexToRgba(accent, 0.18, "rgba(52,211,153,0.18)");
+    var accentLine = hexToRgba(accent, 0.28, "rgba(52,211,153,0.28)");
     return {
         accent: accent,
-        gradient: ["#09111F", "#0F172A", "#1B263B"],
-        text: "#FFFFFF",
-        muted: "rgba(255,255,255,0.78)",
-        subtle: "rgba(255,255,255,0.50)",
-        line: "rgba(255,255,255,0.08)"
+        base: "#060B16",
+        gradient: ["#08101C", "#0D1524", accentSoft],
+        text: "#F8FAFC",
+        muted: "rgba(226,232,240,0.82)",
+        subtle: "rgba(203,213,225,0.62)",
+        footer: "rgba(148,163,184,0.88)",
+        line: accentLine,
+        lineFade: "rgba(255,255,255,0.02)",
+        titleShadow: accentGlow,
+        iconGlow: accentGlow
     };
+}
+
+function hexToRgba(color, alpha, fallback) {
+    var value = trim(color).replace("#", "");
+    if (value.length === 3) {
+        value = value.charAt(0) + value.charAt(0)
+            + value.charAt(1) + value.charAt(1)
+            + value.charAt(2) + value.charAt(2);
+    }
+    if (!/^[0-9a-fA-F]{6}$/.test(value)) {
+        return fallback || color;
+    }
+    return "rgba(" + parseInt(value.slice(0, 2), 16)
+        + "," + parseInt(value.slice(2, 4), 16)
+        + "," + parseInt(value.slice(4, 6), 16)
+        + "," + alpha + ")";
 }
 
 function buildInlineText(vm) {
