@@ -24,7 +24,8 @@ const path = require('path');
                 DEVICE_ID: '1234567890',
                 OPEN_URL: 'https://h5-bj.ninebot.com/',
                 MANUAL_CHECKIN_SCRIPT_NAME: 'ninebot-checkin-manual',
-                MANUAL_STATUS_SCRIPT_NAME: 'ninebot-checkin-query'
+                MANUAL_STATUS_SCRIPT_NAME: 'ninebot-checkin-query',
+                DAILY_CRON_TEXT: '0 9 * * *'
             },
             widgetFamily: 'systemMedium',
             storage: createStore(),
@@ -47,7 +48,17 @@ const path = require('path');
                 }
             },
             notify: async () => { },
-            ...overrides
+            ...overrides,
+            env: {
+                TITLE: 'Ninebot 签到',
+                AUTHORIZATION: 'Bearer test-token',
+                DEVICE_ID: '1234567890',
+                OPEN_URL: 'https://h5-bj.ninebot.com/',
+                MANUAL_CHECKIN_SCRIPT_NAME: 'ninebot-checkin-manual',
+                MANUAL_STATUS_SCRIPT_NAME: 'ninebot-checkin-query',
+                DAILY_CRON_TEXT: '0 9 * * *',
+                ...(overrides.env || {})
+            }
         };
     }
 
@@ -102,19 +113,23 @@ const path = require('path');
         throw new Error('small widget 未保留核心结果摘要');
     }
 
+    const now = new Date();
+    const currentCronText = `${now.getMinutes()} ${now.getHours()} * * *`;
+    const skippedMinute = (now.getMinutes() + 1) % 60;
+    const skippedHour = skippedMinute === 0 ? (now.getHours() + 1) % 24 : now.getHours();
+    const skippedCronText = `${skippedMinute} ${skippedHour} * * *`;
+
     let successNotify = false;
     const scheduleCtx = createCtx({
-        cron: '0 9 * * *',
+        cron: '* * * * *',
         script: { name: 'ninebot-checkin' },
         notify: async () => {
             successNotify = true;
         },
         env: {
-            TITLE: 'Ninebot 签到',
-            AUTHORIZATION: 'Bearer test-token',
-            DEVICE_ID: '1234567890',
             NOTIFY_ON_SUCCESS: 'true',
-            ACTION: 'checkin'
+            ACTION: 'checkin',
+            DAILY_CRON_TEXT: currentCronText
         }
     });
 
@@ -124,6 +139,73 @@ const path = require('path');
     }
     if (!successNotify) {
         throw new Error('schedule 成功后未触发通知');
+    }
+
+    const skippedStore = createStore();
+    let skippedPostCalled = false;
+    const skippedCtx = createCtx({
+        cron: '* * * * *',
+        script: { name: 'ninebot-checkin' },
+        storage: skippedStore,
+        env: {
+            ACTION: 'checkin',
+            DAILY_CRON_TEXT: skippedCronText
+        },
+        http: {
+            async get() {
+                throw new Error('未到自定义执行时间时不应查询状态接口');
+            },
+            async post() {
+                skippedPostCalled = true;
+                throw new Error('未到自定义执行时间时不应调用签到接口');
+            }
+        }
+    });
+
+    const skippedResult = await script(skippedCtx);
+    if (!skippedResult || skippedResult.status !== 'pending') {
+        throw new Error('未到自定义执行时间时应返回等待签到状态');
+    }
+    if (skippedPostCalled) {
+        throw new Error('未到自定义执行时间时错误调用了签到接口');
+    }
+
+    let manualPostCalled = false;
+    const manualCtx = createCtx({
+        cron: '0 0 31 2 *',
+        script: { name: 'ninebot-checkin-manual' },
+        env: {
+            ACTION: 'checkin',
+            FORCE_CHECKIN: 'true',
+            DAILY_CRON_TEXT: skippedCronText
+        },
+        http: {
+            async get() {
+                return {
+                    status: 200,
+                    async text() {
+                        return JSON.stringify({ code: 0, data: { currentSignStatus: 0, consecutiveDays: 6 } });
+                    }
+                };
+            },
+            async post() {
+                manualPostCalled = true;
+                return {
+                    status: 200,
+                    async text() {
+                        return JSON.stringify({ code: 0, data: { rewardDesc: '奖励 5 积分' } });
+                    }
+                };
+            }
+        }
+    });
+
+    const manualResult = await script(manualCtx);
+    if (!manualResult || manualResult.status !== 'success') {
+        throw new Error('手动补签结果不符合预期');
+    }
+    if (!manualPostCalled) {
+        throw new Error('手动补签未触发签到接口');
     }
 
     const queryCtx = createCtx({
