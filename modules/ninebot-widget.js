@@ -902,21 +902,17 @@ function footer(vm) {
 }
 
 function buildSmallMetaText(vm) {
-    var parts = [];
     var streak = compactStreak(vm.streakText);
     if ((vm.status === "success" || vm.status === "already_signed" || vm.status === "not_signed") && streak !== "连签 --") {
-        parts.push(streak);
-    }
-    if (vm.historyText && hasHistoryMarks(vm.historyText)) {
-        parts.push("7日 " + vm.historyText);
-    }
-    if (parts.length) {
-        return clipText(parts.join(" · "), 18);
+        return streak;
     }
     if (vm.status === "success" && vm.verificationState === "post_failure_recheck") {
-        return "复查确认成功";
+        return "复查确认";
     }
-    return "更新 " + vm.updatedText;
+    if (vm.status === "auth_expired") {
+        return "更新授权";
+    }
+    return vm.updatedText;
 }
 
 function buildMediumFooterText(vm) {
@@ -933,14 +929,29 @@ function buildMediumFooterText(vm) {
 }
 
 function buildCompactFooterText(vm, family) {
+    if (family === "small") {
+        if (vm.status === "auth_expired") {
+            return "需更新授权";
+        }
+        if (vm.status === "failed") {
+            return "可重试";
+        }
+        if (vm.status === "not_signed") {
+            return "可补签";
+        }
+        if (vm.nextRunShortText && vm.nextRunShortText !== "待定") {
+            return clipText(vm.nextRunShortText, 8);
+        }
+        return "待自动签到";
+    }
     if (vm.status === "auth_expired") {
         return "更新授权后重试";
     }
     if (vm.nextRunCompactText && vm.nextRunCompactText !== "待定") {
-        return clipText("下次 " + vm.nextRunCompactText, family === "small" ? 18 : 24);
+        return clipText("下次 " + vm.nextRunCompactText, 24);
     }
     if (vm.status === "failed") {
-        return family === "small" ? "可重新执行" : "稍后可重新执行";
+        return "稍后可重新执行";
     }
     if (vm.status === "not_signed") {
         return "可重新执行";
