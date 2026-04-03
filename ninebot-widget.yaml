@@ -41,21 +41,12 @@ scriptings:
 # FORCE_CHECKIN (可选，默认 false)
 #   设为 true 时忽略当日成功缓存并重新尝试签到
 #
-# ACTION (可选，默认 "checkin")
-#   schedule 脚本动作，可为 "checkin" 或 "status"
-#
 # DAILY_CRON_TEXT (可选，默认 "0 9 * * *")
 #   小组件展示用的定时文本，不影响真实 cron；组件会据此推导“下次执行时间”
 #
-# MANUAL_CHECKIN_SCRIPT_NAME (可选，默认 "ninebot-checkin-manual")
-#   小组件中显示的手动签到脚本名
-#
-# MANUAL_STATUS_SCRIPT_NAME (可选，默认 "ninebot-checkin-query")
-#   小组件中显示的手动查询脚本名
-#
 # 说明：
 # - 若接口返回 401 / 403 或明确的鉴权失败文案，小组件会展示“授权失效”专用状态
-# - 小组件会保留最近 7 天签到摘要：✓ 已签，✕ 失败，! 授权失效，○ 未签，· 无记录
+# - 小组件会保留最近 7 天签到摘要：✓ 已签，✕ 失败，! 授权失效，○ 未签，· 无记录（左旧右新）
 - schedule:
     name: ninebot-checkin
     cron: "0 9 * * *"
@@ -63,35 +54,7 @@ scriptings:
     timeout: 30
     update_interval: 86400
     env:
-      ACTION: "checkin"
       DAILY_CRON_TEXT: "0 9 * * *"
-      MANUAL_CHECKIN_SCRIPT_NAME: "ninebot-checkin-manual"
-      MANUAL_STATUS_SCRIPT_NAME: "ninebot-checkin-query"
-
-- schedule:
-    name: ninebot-checkin-manual
-    cron: "0 0 31 2 *"
-    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/ninebot-widget.js
-    timeout: 30
-    update_interval: 86400
-    env:
-      ACTION: "checkin"
-      FORCE_CHECKIN: "true"
-      DAILY_CRON_TEXT: "0 9 * * *"
-      MANUAL_CHECKIN_SCRIPT_NAME: "ninebot-checkin-manual"
-      MANUAL_STATUS_SCRIPT_NAME: "ninebot-checkin-query"
-
-- schedule:
-    name: ninebot-checkin-query
-    cron: "1 0 31 2 *"
-    script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/ninebot-widget.js
-    timeout: 30
-    update_interval: 86400
-    env:
-      ACTION: "status"
-      DAILY_CRON_TEXT: "0 9 * * *"
-      MANUAL_CHECKIN_SCRIPT_NAME: "ninebot-checkin-manual"
-      MANUAL_STATUS_SCRIPT_NAME: "ninebot-checkin-query"
 
 - generic:
     name: ninebot-widget
@@ -100,8 +63,6 @@ scriptings:
     update_interval: 86400
     env:
       DAILY_CRON_TEXT: "0 9 * * *"
-      MANUAL_CHECKIN_SCRIPT_NAME: "ninebot-checkin-manual"
-      MANUAL_STATUS_SCRIPT_NAME: "ninebot-checkin-query"
 
 widgets:
 - name: Ninebot 签到

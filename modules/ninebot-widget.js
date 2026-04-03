@@ -725,8 +725,12 @@ function buildViewModel(record, config, history) {
         nextRunText: scheduleInfo.nextRunText,
         countdownText: scheduleInfo.countdownText,
         nextRunDetailText: scheduleInfo.nextRunDetailText,
+        nextRunCompactText: buildNextRunCompactText(scheduleInfo.nextRunText, scheduleInfo.countdownText),
+        nextRunShortText: buildShortNextRunText(scheduleInfo.nextRunText),
+        nextRunMetaText: buildCompactCountdownText(scheduleInfo.countdownText),
         historyText: historyText,
-        historySummaryText: "近7天 " + historyText,
+        historySummaryText: buildHistoryCaptionText(historyText),
+        historyDetailText: buildHistoryDetailText(historyText),
         verificationState: record.verificationState
     };
 }
@@ -780,7 +784,7 @@ function buildRectangular(vm) {
         spacer(4),
         infoRow("结果", vm.secondary, vm.theme, { maxLines: 2 }),
         spacer(4),
-        infoRow("最近", vm.updatedText, vm.theme, { maxLines: 1 })
+        infoRow("下次", vm.nextRunCompactText, vm.theme, { maxLines: 1 })
     ], vm, [12, 12, 12, 12]);
 }
 
@@ -815,26 +819,33 @@ function buildMedium(vm) {
             maxLines: 1,
             minScale: 0.76
         }),
-        spacer(4),
+        spacer(3),
         infoRow("结果", compactSecondary(vm, 48), vm.theme, {
             labelWidth: 32,
             valueSize: 11,
             maxLines: 2,
             minScale: 0.78
         }),
-        spacer(4),
+        spacer(3),
         infoRow("连签", compactStreak(vm.streakText), vm.theme, {
             labelWidth: 32,
             valueSize: 11,
             maxLines: 1,
             minScale: 0.8
         }),
-        spacer(4),
+        spacer(3),
         infoRow("最近", vm.updatedText, vm.theme, {
             labelWidth: 32,
             valueSize: 11,
             maxLines: 1,
             minScale: 0.82
+        }),
+        spacer(3),
+        infoRow("下次", vm.nextRunCompactText, vm.theme, {
+            labelWidth: 32,
+            valueSize: 11,
+            maxLines: 1,
+            minScale: 0.8
         }),
         spacer(),
         text(buildMediumFooterText(vm), 10, "medium", vm.theme.footer, { maxLines: 1, minScale: 0.72 })
@@ -855,13 +866,11 @@ function buildLarge(vm) {
         spacer(6),
         infoRow("最近", vm.updatedText, vm.theme, { maxLines: 1 }),
         spacer(6),
-        infoRow("定时", vm.scheduleText, vm.theme, { maxLines: 1 }),
-        spacer(6),
         infoRow("下次", vm.nextRunDetailText, vm.theme, { maxLines: 2 }),
         spacer(6),
-        infoRow("近7天", vm.historyText, vm.theme, { maxLines: 1 }),
+        infoRow("近7天", vm.historyDetailText, vm.theme, { maxLines: 2 }),
         spacer(6),
-        infoRow("说明", vm.footerText, vm.theme, { maxLines: 2 }),
+        infoRow("定时", vm.scheduleText, vm.theme, { maxLines: 1 }),
         spacer(),
         footer(vm)
     ], vm, [16, 16, 16, 16]);
@@ -888,14 +897,21 @@ function shell(children, vm, padding) {
 function footer(vm) {
     return row([
         text(vm.footerText, 10, "medium", vm.theme.footer, { flex: 1, maxLines: 1, minScale: 0.78 }),
-        text(vm.nextRunText && vm.nextRunText !== "未知" ? vm.nextRunText : vm.updatedText, 10, "medium", vm.theme.subtle, { maxLines: 1, minScale: 0.82 })
+        text(vm.nextRunMetaText || vm.scheduleText || vm.updatedText, 10, "medium", vm.theme.subtle, { maxLines: 1, minScale: 0.82 })
     ], { alignItems: "center", gap: 8 });
 }
 
 function buildSmallMetaText(vm) {
+    var parts = [];
     var streak = compactStreak(vm.streakText);
     if ((vm.status === "success" || vm.status === "already_signed" || vm.status === "not_signed") && streak !== "连签 --") {
-        return streak;
+        parts.push(streak);
+    }
+    if (vm.historyText && hasHistoryMarks(vm.historyText)) {
+        parts.push("7日 " + vm.historyText);
+    }
+    if (parts.length) {
+        return clipText(parts.join(" · "), 18);
     }
     if (vm.status === "success" && vm.verificationState === "post_failure_recheck") {
         return "复查确认成功";
@@ -905,15 +921,13 @@ function buildSmallMetaText(vm) {
 
 function buildMediumFooterText(vm) {
     var parts = [];
-    if (vm.historyText) {
-        parts.push("近7天 " + vm.historyText);
+    if (vm.historySummaryText) {
+        parts.push(vm.historySummaryText);
     }
     if (vm.status === "auth_expired") {
         parts.push("更新授权后重试");
-    } else if (vm.nextRunText && vm.nextRunText !== "未知") {
-        parts.push("下次 " + buildShortNextRunText(vm.nextRunText));
-    } else if (vm.scheduleText) {
-        parts.push(vm.scheduleText);
+    } else if (vm.status === "success" && vm.verificationState === "post_failure_recheck") {
+        parts.push("复查确认成功");
     }
     return clipText(parts.join(" · "), 34);
 }
@@ -922,8 +936,8 @@ function buildCompactFooterText(vm, family) {
     if (vm.status === "auth_expired") {
         return "更新授权后重试";
     }
-    if (vm.nextRunText && vm.nextRunText !== "未知") {
-        return clipText("下次 " + buildShortNextRunText(vm.nextRunText), family === "small" ? 14 : 20);
+    if (vm.nextRunCompactText && vm.nextRunCompactText !== "待定") {
+        return clipText("下次 " + vm.nextRunCompactText, family === "small" ? 18 : 24);
     }
     if (vm.status === "failed") {
         return family === "small" ? "可重新执行" : "稍后可重新执行";
@@ -947,7 +961,38 @@ function compactSecondary(vm, maxLength) {
 function buildShortNextRunText(value) {
     var textValue = trim(value);
     if (!textValue || textValue === "未知") return "待定";
-    return textValue.replace(/\s+/g, "");
+    return textValue
+        .replace(/^今天\s*/, "今")
+        .replace(/^明天\s*/, "明")
+        .replace(/\s+/g, "");
+}
+
+function buildCompactCountdownText(value) {
+    var textValue = trim(value);
+    if (!textValue) return "";
+    if (textValue === "即将执行") return "即将";
+    return textValue.replace(/^还有/, "") + "后";
+}
+
+function buildNextRunCompactText(nextRunText, countdownText) {
+    var shortText = buildShortNextRunText(nextRunText);
+    if (shortText === "待定") return shortText;
+    var countdown = buildCompactCountdownText(countdownText);
+    return countdown ? (shortText + " · " + countdown) : shortText;
+}
+
+function buildHistoryCaptionText(historyText) {
+    if (!hasHistoryMarks(historyText)) return "近7天暂无记录";
+    return "近7天 " + historyText;
+}
+
+function buildHistoryDetailText(historyText) {
+    if (!hasHistoryMarks(historyText)) return "暂无记录";
+    return historyText + " · 左旧右新";
+}
+
+function hasHistoryMarks(historyText) {
+    return /[✓✕!○]/.test(String(historyText || ""));
 }
 
 function infoRow(label, value, theme, options) {
