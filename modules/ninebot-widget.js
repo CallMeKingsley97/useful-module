@@ -11,8 +11,6 @@ var DEFAULT_REFRESH_MINUTES = 30;
 var DEFAULT_ACCENT_COLOR = "#34D399";
 var DEFAULT_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Segway v6 C 609033420";
 var DEFAULT_DAILY_CRON = "0 9 * * *";
-var DEFAULT_MANUAL_CHECKIN_SCRIPT = "ninebot-checkin-manual";
-var DEFAULT_MANUAL_STATUS_SCRIPT = "ninebot-checkin-query";
 
 export default async function (ctx) {
     if (ctx && ctx.cron) {
@@ -24,15 +22,11 @@ export default async function (ctx) {
 async function runScheduledAction(ctx) {
     var config = readConfig(ctx);
     var result;
-    var source = trim(ctx && ctx.script && ctx.script.name) || (config.action === "status" ? "manual-query" : "schedule");
+    var source = trim(ctx && ctx.script && ctx.script.name) || "schedule";
 
     try {
         ensureRequiredConfig(config);
-        if (config.action === "status") {
-            result = await executeStatusQuery(ctx, config, source);
-        } else {
-            result = await executeCheckinFlow(ctx, config, source);
-        }
+        result = await executeCheckinFlow(ctx, config, source);
     } catch (e) {
         result = createErrorRecord(config, source, e, {
             unhandledError: serializeFailureInput(e)
@@ -216,51 +210,6 @@ async function executeCheckinFlow(ctx, config, source) {
     return successRecord;
 }
 
-async function executeStatusQuery(ctx, config, source) {
-    var statusPayload;
-    try {
-        statusPayload = await fetchStatus(ctx, config);
-    } catch (statusError) {
-        var queryTransportFailure = createErrorRecord(config, source, statusError, {
-            statusError: serializeFailureInput(statusError)
-        }, "查询签到状态失败");
-        saveRecord(ctx, queryTransportFailure);
-        return queryTransportFailure;
-    }
-
-    if (!resultOk(statusPayload)) {
-        var queryFailure = createErrorRecord(config, source, statusPayload, {
-            status: statusPayload
-        }, "查询签到状态失败");
-        saveRecord(ctx, queryFailure);
-        return queryFailure;
-    }
-
-    var statusData = ensureObject(statusPayload.data);
-    var signed = toInt(statusData.currentSignStatus) === 1;
-    var record = createRecord({
-        dateKey: todayKey(),
-        status: signed ? "already_signed" : "not_signed",
-        title: signed ? "今日已签到" : "今日未签到",
-        message: signed ? buildAlreadySignedMessage(statusData) : buildNotSignedMessage(statusData),
-        consecutiveDays: pickFirstNumber([
-            toIntOrNull(statusData.consecutiveDays),
-            toIntOrNull(statusData.continuousDays)
-        ]),
-        checkedAt: nowIso(),
-        source: source,
-        lastError: "",
-        verificationState: "status_query",
-        errorCategory: "",
-        raw: {
-            status: statusPayload
-        }
-    });
-
-    saveRecord(ctx, record);
-    return record;
-}
-
 async function fetchStatus(ctx, config) {
     return await requestJson(ctx, "GET", STATUS_URL + "?t=" + Date.now(), null, buildHeaders(config), config.timeoutMs);
 }
@@ -366,10 +315,7 @@ function readConfig(ctx) {
         notifyOnSuccess: isTrue(env.NOTIFY_ON_SUCCESS),
         notifyOnFailure: isTrue(env.NOTIFY_ON_FAILURE),
         forceCheckin: isTrue(env.FORCE_CHECKIN),
-        action: normalizeAction(env.ACTION),
-        dailyCronText: trim(env.DAILY_CRON_TEXT) || DEFAULT_DAILY_CRON,
-        manualCheckinScriptName: trim(env.MANUAL_CHECKIN_SCRIPT_NAME) || DEFAULT_MANUAL_CHECKIN_SCRIPT,
-        manualStatusScriptName: trim(env.MANUAL_STATUS_SCRIPT_NAME) || DEFAULT_MANUAL_STATUS_SCRIPT
+        dailyCronText: trim(env.DAILY_CRON_TEXT) || DEFAULT_DAILY_CRON
     };
 }
 
@@ -724,23 +670,23 @@ function buildViewModel(record, config, history) {
         secondary = record.message || "Authorization 可能已过期，需要重新抓包更新";
         statusColor = "#F87171";
         symbol = "sf-symbol:lock.fill";
-        footerText = "更新授权后可手动重试";
+        footerText = "更新授权后可重新执行";
     } else if (record.status === "failed") {
         primary = isToday ? "签到失败" : "上次签到失败";
         secondary = record.message || record.lastError || "未知错误";
         statusColor = "#FB923C";
         symbol = "sf-symbol:exclamationmark.triangle.fill";
         footerText = scheduleInfo.nextRunText !== "未知"
-            ? ("可手动重试，或等待 " + scheduleInfo.nextRunText)
-            : "可手动运行签到脚本重试";
+            ? ("可重新执行，或等待 " + scheduleInfo.nextRunText)
+            : "重新执行即可重试";
     } else if (record.status === "not_signed") {
         primary = "今日未签到";
         secondary = record.message || "服务器显示今日尚未签到";
         statusColor = "#FBBF24";
         symbol = "sf-symbol:xmark.seal.fill";
         footerText = scheduleInfo.nextRunText !== "未知"
-            ? ("可手动补签，或等待 " + scheduleInfo.nextRunText)
-            : "可手动运行签到脚本立即补签";
+            ? ("可重新执行，或等待 " + scheduleInfo.nextRunText)
+            : "重新执行即可补签";
     } else if (!isToday) {
         primary = "今日未执行";
         secondary = record.checkedAt
@@ -781,9 +727,7 @@ function buildViewModel(record, config, history) {
         nextRunDetailText: scheduleInfo.nextRunDetailText,
         historyText: historyText,
         historySummaryText: "近7天 " + historyText,
-        verificationState: record.verificationState,
-        manualCheckinText: "工具→脚本：运行 " + config.manualCheckinScriptName,
-        manualStatusText: "工具→脚本：运行 " + config.manualStatusScriptName
+        verificationState: record.verificationState
     };
 }
 
@@ -917,10 +861,6 @@ function buildLarge(vm) {
         spacer(6),
         infoRow("近7天", vm.historyText, vm.theme, { maxLines: 1 }),
         spacer(6),
-        infoRow("手动签", vm.manualCheckinText, vm.theme, { maxLines: 2 }),
-        spacer(6),
-        infoRow("手动查", vm.manualStatusText, vm.theme, { maxLines: 2 }),
-        spacer(6),
         infoRow("说明", vm.footerText, vm.theme, { maxLines: 2 }),
         spacer(),
         footer(vm)
@@ -980,16 +920,16 @@ function buildMediumFooterText(vm) {
 
 function buildCompactFooterText(vm, family) {
     if (vm.status === "auth_expired") {
-        return family === "small" ? "更新授权后重试" : "更新授权后手动重试";
+        return "更新授权后重试";
     }
     if (vm.nextRunText && vm.nextRunText !== "未知") {
         return clipText("下次 " + buildShortNextRunText(vm.nextRunText), family === "small" ? 14 : 20);
     }
     if (vm.status === "failed") {
-        return family === "small" ? "可手动重试" : "稍后可手动重试";
+        return family === "small" ? "可重新执行" : "稍后可重新执行";
     }
     if (vm.status === "not_signed") {
-        return "可手动补签";
+        return "可重新执行";
     }
     return "等待自动签到";
 }
@@ -1149,7 +1089,7 @@ function buildInlineText(vm) {
         return clipText(vm.title + " 失败 · 下次 " + buildShortNextRunText(vm.nextRunText), 28);
     }
     if (vm.status === "not_signed" && vm.isToday) {
-        return clipText(vm.title + " 未签到 · 可手动补签", 28);
+        return clipText(vm.title + " 未签到 · 可重试", 28);
     }
     if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) {
         return clipText(vm.title + " 已签到 · " + compactStreak(vm.streakText), 28);
@@ -1438,12 +1378,6 @@ function timeValue(value) {
     var date = new Date(value);
     var time = date.getTime();
     return isNaN(time) ? 0 : time;
-}
-
-function normalizeAction(value) {
-    var normalized = trim(value).toLowerCase();
-    if (normalized === "status" || normalized === "query" || normalized === "query-status") return "status";
-    return "checkin";
 }
 
 function statusText(status) {
