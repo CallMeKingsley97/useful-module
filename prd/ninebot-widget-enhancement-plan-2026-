@@ -1,0 +1,500 @@
+# Ninebot Widget 增强功能实现方案 2026-04-02
+
+## 1. 范围与结论
+
+本轮只规划对 [`modules/ninebot-widget.js`](modules/ninebot-widget.js) 与 [`ninebot-widget.yaml`](ninebot-widget.yaml) 的增强，不引入外部依赖，不改动其他模块。
+
+目标只覆盖 4 项能力：
+
+1. 授权过期专用状态
+2. 失败后二次核验
+3. 下次执行时间可视化
+4. 最近 7 天轻量历史
+
+当前 [`runScheduledAction()`](modules/ninebot-widget.js:22)、[`executeCheckinFlow()`](modules/ninebot-widget.js:61)、[`executeStatusQuery()`](modules/ninebot-widget.js:145)、[`buildViewModel()`](modules/ninebot-widget.js:385) 已经具备较好的骨架，本轮应采用增量改造，不建议推倒重写。
+
+---
+
+## 2. 设计目标
+
+### 2.1 交付目标
+
+- 将“授权过期”从泛化失败中单独识别出来
+- 在签到请求异常或业务失败后，自动补一次状态核验，减少误报
+- 在组件中直接展示下次执行时间与相对倒计时
+- 用最小存储成本展示最近 7 天签到走势
+
+### 2.2 非目标
+
+- 不做通用 cron 引擎
+- 不做多账号缓存隔离
+- 不做时区体系重构
+- 不做复杂图表或交互式历史明细
+
+---
+
+## 3. 总体改造思路
+
+```mermaid
+flowchart TD
+    A[定时或手动签到触发] --> B[读取配置与最近记录]
+    B --> C[请求签到状态]
+    C --> D{HTTP 401 403 或鉴权失效文案}
+    D -->|是| E[落 auth_expired 记录]
+    D -->|否| F{今日已签到}
+    F -->|是| G[落 already_signed 记录]
+    F -->|否| H[发起签到请求]
+    H --> I{签到直接成功}
+    I -->|是| J[再次拉取状态并落 success]
+    I -->|否| K[立即补一次状态核验]
+    K --> L{核验显示已签到}
+    L -->|是| M[落 success 并标记来自失败补偿]
+    L -->|否| N[落 failed 或 auth_expired]
+    E --> O[更新最近记录与 7 天历史]
+    G --> O
+    J --> O
+    M --> O
+    N --> O
+    O --> P[Widget 展示状态 历史 下次执行时间]
+```
+
+---
+
+## 4. 数据结构方案
+
+### 4.1 最近一次结果记录
+
+保留现有存储键 [`STORAGE_KEY`](modules/ninebot-widget.js:1)，不做破坏性迁移，只扩展字段。
+
+建议把 [`createRecord()`](modules/ninebot-widget.js:322) 标准化后的记录扩展为以下结构：
+
+```json
+{
+  "dateKey": "2026-04-02",
+  "status": "success",
+  "title": "签到成功",
+  "message": "接口响应异常，但状态复查确认已签到",
+  "consecutiveDays": 12,
+  "checkedAt": "2026-04-02T09:00:05.000Z",
+  "source": "schedule",
+  "lastError": "请求超时",
+  "verificationState": "post_failure_recheck",
+  "errorCategory": "network_timeout",
+  "raw": {}
+}
+```
+
+新增字段含义：
+
+- verificationState：记录是否来自失败后的状态补偿
+- errorCategory：给 UI 与通知层做细粒度分支
+
+建议状态枚举从当前的 pending、success、already_signed、not_signed、failed 扩展为：
+
+- pending
+- success
+- already_signed
+- not_signed
+- failed
+- auth_expired
+
+### 4.2 7 天历史存储
+
+新增一个单独的历史键，建议命名为 `ninebot_checkin_history_v1`。
+
+历史记录不复用 [`loadRecord()`](modules/ninebot-widget.js:306) / [`saveRecord()`](modules/ninebot-widget.js:317) 当前单条结构，而是单独维护一个轻量数组：
+
+```json
+[
+  { "dateKey": "2026-04-02", "status": "success", "checkedAt": "2026-04-02T09:00:05.000Z", "verificationState": "post_failure_recheck" },
+  { "dateKey": "2026-04-01", "status": "already_signed", "checkedAt": "2026-04-01T09:00:03.000Z", "verificationState": "direct" },
+  { "dateKey": "2026-03-31", "status": "auth_expired", "checkedAt": "2026-03-31T09:00:02.000Z", "verificationState": "direct" }
+]
+```
+
+约束规则：
+
+- 只保留最近 7 个自然日
+- 同一天只保留 1 条最新记录
+- 忽略 pending 与配置缺失态
+- 每次 [`saveRecord()`](modules/ninebot-widget.js:317) 成功写入最近记录后，再同步更新历史
+
+---
+
+## 5. 授权过期专用状态方案
+
+### 5.1 判定来源
+
+建议在 [`requestJson()`](modules/ninebot-widget.js:188) 这一层增加错误分类能力，但不强制改掉现有调用方式。
+
+优先判定以下两类信号：
+
+1. HTTP 状态码为 401 或 403
+2. 业务返回文案包含高置信度关键词，例如 unauthorized、token expired、登录失效、授权失效、鉴权失败
+
+建议做法：
+
+- 网络层在抛错时附带 httpStatus、responseMessage、errorCategory
+- 业务层新增一层错误归类辅助逻辑，把授权异常统一归为 auth_expired
+- [`createFailureRecord()`](modules/ninebot-widget.js:365) 不再承担所有失败态，新增一个专用记录构造分支
+
+### 5.2 记录与通知
+
+auth_expired 记录建议字段：
+
+- status：auth_expired
+- title：授权已失效
+- message：Authorization 可能已过期，需要重新抓包更新
+- lastError：保留接口原始错误摘要
+- errorCategory：auth_expired
+
+通知策略：
+
+- 在 [`maybeNotify()`](modules/ninebot-widget.js:272) 中把 auth_expired 归入失败通知分支
+- 通知文案不要只写“签到失败”，而是直接写“授权已失效，需要更新 Authorization”
+
+### 5.3 Widget 展示策略
+
+建议在 [`buildViewModel()`](modules/ninebot-widget.js:385) 中新增 auth_expired 分支：
+
+- primary：授权失效
+- secondary：Authorization 可能已过期，需要重新抓包更新
+- statusColor：危险色
+- symbol：锁或钥匙失效类图标
+- footerText：更新配置后可手动重试
+
+布局落点：
+
+- 小号：只显示授权失效与短说明
+- 中号：显示授权失效、错误摘要、最近时间
+- 大号：额外显示脚本名提示，便于用户更新后立刻手动验证
+
+---
+
+## 6. 失败后二次核验方案
+
+### 6.1 触发时机
+
+增强 [`executeCheckinFlow()`](modules/ninebot-widget.js:61) 的失败路径：
+
+- 前置状态查询失败后，仍按现有逻辑直接落失败
+- 真正需要“失败后二次核验”的触发点，是签到请求已发出，但返回异常、超时、非成功业务码
+
+原因：
+
+- 这类失败最容易出现“服务端已落单，但客户端没拿到成功响应”
+- 对这类失败补一次 [`fetchStatus()`](modules/ninebot-widget.js:178) 成本低、收益高
+
+### 6.2 处理流程
+
+建议流程：
+
+1. 请求签到前已确认当前未签到
+2. 发起 [`postSign()`](modules/ninebot-widget.js:182)
+3. 若返回成功，继续走现有成功路径
+4. 若返回异常或业务失败，立即再请求一次 [`fetchStatus()`](modules/ninebot-widget.js:178)
+5. 若核验结果显示今日已签到，则落 success，但标记 verificationState 为 post_failure_recheck
+6. 若核验仍显示未签到，则按真实错误落 failed 或 auth_expired
+
+### 6.3 文案策略
+
+补偿成功时，建议 [`buildSuccessMessage()`](modules/ninebot-widget.js:806) 追加一段稳定文案：
+
+- 接口响应异常，但状态复查确认已签到
+
+这样用户能知道：
+
+- 当天其实已经签到成功
+- 只是请求链路存在波动
+
+### 6.4 记录优先级
+
+同一天如果先落 failed，后续手动补签成功，历史应以最后一次真实状态为准。
+
+因此历史更新规则建议使用：
+
+- 同一天按 checkedAt 较新的记录覆盖较旧记录
+- success 与 already_signed 可以自然覆盖 failed
+- auth_expired 被后续 success 覆盖时，不保留旧失败态
+
+---
+
+## 7. 下次执行时间可视化方案
+
+### 7.1 输入来源
+
+保守方案不新增复杂配置，直接复用当前的 DAILY_CRON_TEXT。
+
+但为了保证 Widget 也能拿到同一份展示配置，建议在 [`ninebot-widget.yaml`](ninebot-widget.yaml) 的 generic 脚本配置中补齐与 schedule 相同的 env：
+
+- DAILY_CRON_TEXT
+- MANUAL_CHECKIN_SCRIPT_NAME
+- MANUAL_STATUS_SCRIPT_NAME
+
+### 7.2 解析边界
+
+本轮只支持每天固定一次的 cron 文本，即：
+
+- 分钟 小时 星号 星号 星号
+
+例如：
+
+- 0 9 星号 星号 星号
+- 30 21 星号 星号 星号
+
+如果 DAILY_CRON_TEXT 不满足该模式，则降级为：
+
+- 继续显示原有 scheduleText
+- 不显示倒计时，只显示下次执行 未知
+
+### 7.3 视图模型扩展
+
+建议在 [`buildViewModel()`](modules/ninebot-widget.js:385) 中新增以下展示字段：
+
+- nextRunText：今天 09:00 或 明天 09:00
+- countdownText：还有 2小时15分
+- scheduleSummaryText：每天 09:00 自动签到
+
+计算逻辑：
+
+- 解析 DAILY_CRON_TEXT 得到 hour 与 minute
+- 以当前本地时间构造今天的目标时间
+- 若当前时间未到目标时间，nextRunText 为今天 HH:mm
+- 若当前时间已过目标时间，nextRunText 为明天 HH:mm
+- countdownText 为目标时间减去当前时间的小时分钟差
+
+### 7.4 UI 落点
+
+建议布局：
+
+- [`buildSmall()`](modules/ninebot-widget.js:506)：尾注改为短文本，例如 下次 今天 09:00
+- [`buildMedium()`](modules/ninebot-widget.js:523)：保留最近一行，并用短尾注展示 还有 2小时15分
+- [`buildLarge()`](modules/ninebot-widget.js:561)：新增一行 下次，展示 nextRunText 与 countdownText
+- [`buildInlineText()`](modules/ninebot-widget.js:775)：等待态文案从固定 09:00 改为 nextRunText
+
+这样能顺手解决当前等待文案里写死 09:00 的一致性问题。
+
+---
+
+## 8. 最近 7 天轻量历史方案
+
+### 8.1 存储策略
+
+新增历史辅助层，职责如下：
+
+- 读取历史数组
+- 按 dateKey 合并同日记录
+- 截断为最近 7 天
+- 输出给 Widget 使用的紧凑摘要字符串
+
+建议字符映射：
+
+- success / already_signed：✓
+- auth_expired：!
+- failed：✕
+- not_signed：○
+- 无记录：·
+
+示例：
+
+- 近7天：✓✓✓✕!·○
+
+### 8.2 写入时机
+
+写入历史的入口不建议散落在多个业务分支，而应统一挂到 [`saveRecord()`](modules/ninebot-widget.js:317) 的内部或其后一层封装中。
+
+这样可以保证：
+
+- 签到成功
+- 已签到
+- 查询未签到
+- 鉴权失效
+- 普通失败
+
+都会通过同一条链路进入历史存储。
+
+### 8.3 展示策略
+
+建议只在中大尺寸展示历史，小号不展示。
+
+具体落点：
+
+- [`buildMedium()`](modules/ninebot-widget.js:523)：把尾注切换为 近7天摘要，或在最近一行后新增一条紧凑历史
+- [`buildLarge()`](modules/ninebot-widget.js:561)：新增 历史 信息行，例如 近7天 ✓✓✕✓!··
+- [`buildCircular()`](modules/ninebot-widget.js:478)：暂不加历史，避免信息过载
+
+### 8.4 文案压缩
+
+历史展示必须短，不建议写成长句说明。
+
+建议规则：
+
+- 中号直接显示 近7天 + 符号串
+- 大号可追加一句简短图例，例如 ✓已签 ✕失败 !授权 ○未签
+- 若空间不足，图例优先省略，保留符号串本身
+
+---
+
+## 9. 关键代码落点
+
+### 9.1 网络与错误分类
+
+主要改动落在：
+
+- [`requestJson()`](modules/ninebot-widget.js:188)
+- [`extractMessage()`](modules/ninebot-widget.js:864)
+- [`safeMsg()`](modules/ninebot-widget.js:916)
+
+目标：
+
+- 在异常对象上补充 httpStatus 与 errorCategory
+- 将授权失效与普通失败区分开
+- 为失败后二次核验提供足够上下文
+
+### 9.2 业务流程
+
+主要改动落在：
+
+- [`runScheduledAction()`](modules/ninebot-widget.js:22)
+- [`executeCheckinFlow()`](modules/ninebot-widget.js:61)
+- [`executeStatusQuery()`](modules/ninebot-widget.js:145)
+- [`createFailureRecord()`](modules/ninebot-widget.js:365)
+
+目标：
+
+- 新增 auth_expired 记录分支
+- 新增签到失败后的状态复查分支
+- 保证各种终态都能稳定落缓存
+
+### 9.3 存储与视图模型
+
+主要改动落在：
+
+- [`loadRecord()`](modules/ninebot-widget.js:306)
+- [`saveRecord()`](modules/ninebot-widget.js:317)
+- [`createRecord()`](modules/ninebot-widget.js:322)
+- [`buildViewModel()`](modules/ninebot-widget.js:385)
+
+目标：
+
+- 扩展记录结构
+- 新增 7 天历史存储
+- 新增 nextRunText、countdownText、historyText
+
+### 9.4 各尺寸布局
+
+主要改动落在：
+
+- [`buildSmall()`](modules/ninebot-widget.js:506)
+- [`buildMedium()`](modules/ninebot-widget.js:523)
+- [`buildLarge()`](modules/ninebot-widget.js:561)
+- [`buildInlineText()`](modules/ninebot-widget.js:775)
+- [`buildCompactFooterText()`](modules/ninebot-widget.js:621)
+
+目标：
+
+- 展示授权失效态
+- 使用动态下次执行时间替代写死 09:00
+- 在中大尺寸展示轻量历史
+
+---
+
+## 10. YAML 调整方案
+
+[`ninebot-widget.yaml`](ninebot-widget.yaml) 建议调整点：
+
+1. 在 generic 配置中补 env，至少包含 DAILY_CRON_TEXT、MANUAL_CHECKIN_SCRIPT_NAME、MANUAL_STATUS_SCRIPT_NAME
+2. schedule 与 generic 共享同一份 DAILY_CRON_TEXT，避免展示文案不一致
+3. 注释说明中补充：授权过期时组件会显示专用状态
+4. 注释说明中补充：最近 7 天历史为轻量摘要，不是完整明细
+
+本轮不建议新增新的必填环境变量。
+
+---
+
+## 11. 实施顺序
+
+建议按以下顺序实现，避免一次改动过宽：
+
+1. 先改网络错误分类，打通 auth_expired 的判定能力
+2. 再改签到失败后的二次核验，确保业务闭环正确
+3. 再补历史存储结构与摘要构造
+4. 最后改视图模型与各尺寸布局，把 nextRunText、countdownText、historyText 接出来
+5. 最后更新 [`ninebot-widget.yaml`](ninebot-widget.yaml) 注释与 generic env
+
+这个顺序的好处是：
+
+- 先保证状态正确
+- 再保证展示丰富
+- 出问题时更容易定位是流程层还是 UI 层
+
+---
+
+## 12. 验证方案
+
+### 12.1 授权过期
+
+验证点：
+
+- 模拟 401 或 403 时，最终记录状态为 auth_expired
+- Widget 主状态显示授权失效，而不是签到失败
+- 开启失败通知时，通知文案能明确提示更新 Authorization
+
+### 12.2 失败后二次核验
+
+验证点：
+
+- 模拟签到请求超时，但随后的状态查询显示已签到
+- 最终记录应为 success
+- message 中应包含状态复查确认成功的提示
+- 历史中当天状态应为成功符号，而不是失败符号
+
+### 12.3 下次执行时间
+
+验证点：
+
+- 当当前时间早于目标时间时，显示 今天 HH:mm
+- 当当前时间晚于目标时间时，显示 明天 HH:mm
+- DAILY_CRON_TEXT 非固定每日模式时，能安全降级，不抛异常
+
+### 12.4 7 天历史
+
+验证点：
+
+- 连续写入 8 天数据后，只保留最近 7 天
+- 同一天多次写入时，只保留最新结果
+- 中号与大号展示的历史摘要一致
+
+---
+
+## 13. 风险与回退
+
+### 13.1 风险
+
+- Ninebot 的错误文案可能变化，导致 auth_expired 关键词识别存在漏判
+- 若 Egern generic env 不支持当前写法，需要改用默认值兜底
+- 历史摘要加入后，中号布局可能再次逼近高度边界，需要配合 [`buildMedium()`](modules/ninebot-widget.js:523) 做文案裁剪
+
+### 13.2 回退策略
+
+- auth_expired 识别失败时，最坏情况仍回落为 failed，不影响主流程
+- 下次执行时间解析失败时，继续显示原有 scheduleText
+- 历史渲染超长时，优先只保留符号串，不展示图例
+
+---
+
+## 14. 推荐落地结论
+
+如果只允许做一轮最有收益的增强，应优先落地以下组合：
+
+1. auth_expired 专用状态
+2. 签到失败后二次核验
+3. 动态 nextRunText 替换写死 09:00
+4. 大号先接入 7 天历史，中号按空间决定是否接入
+
+这组改动能同时提升：
+
+- 问题可定位性
+- 结果可信度
+- 组件信息密度
+- 后续继续扩展多账号与时区能力的基础

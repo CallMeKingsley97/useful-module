@@ -1,4 +1,6 @@
 var STORAGE_KEY = "ninebot_checkin_v2";
+var HISTORY_STORAGE_KEY = "ninebot_checkin_history_v1";
+var HISTORY_DAYS = 7;
 var STATUS_URL = "https://cn-cbu-gateway.ninebot.com/portal/api/user-sign/v2/status";
 var SIGN_URL = "https://cn-cbu-gateway.ninebot.com/portal/api/user-sign/v2/sign";
 
@@ -32,7 +34,9 @@ async function runScheduledAction(ctx) {
             result = await executeCheckinFlow(ctx, config, source);
         }
     } catch (e) {
-        result = createFailureRecord(config, source, safeMsg(e), null);
+        result = createErrorRecord(config, source, e, {
+            unhandledError: serializeFailureInput(e)
+        }, "任务执行失败");
         saveRecord(ctx, result);
     }
 
@@ -44,18 +48,19 @@ async function renderWidget(ctx) {
     var config = readConfig(ctx);
     var family = ctx.widgetFamily || "systemMedium";
     var record = loadRecord(ctx);
+    var history = loadHistory(ctx);
 
     try {
         ensureRequiredConfig(config);
     } catch (e) {
-        return buildWidget(buildViewModel(createConfigErrorRecord(config, safeMsg(e)), config), family);
+        return buildWidget(buildViewModel(createConfigErrorRecord(config, safeMsg(e)), config, history), family);
     }
 
     if (!record) {
         record = createPendingRecord(config);
     }
 
-    return buildWidget(buildViewModel(record, config), family);
+    return buildWidget(buildViewModel(record, config, history), family);
 }
 
 async function executeCheckinFlow(ctx, config, source) {
@@ -64,11 +69,21 @@ async function executeCheckinFlow(ctx, config, source) {
         return cached;
     }
 
-    var statusBefore = await fetchStatus(ctx, config);
+    var statusBefore;
+    try {
+        statusBefore = await fetchStatus(ctx, config);
+    } catch (statusError) {
+        var precheckTransportFailure = createErrorRecord(config, source, statusError, {
+            statusBeforeError: serializeFailureInput(statusError)
+        }, "获取签到状态失败");
+        saveRecord(ctx, precheckTransportFailure);
+        return precheckTransportFailure;
+    }
+
     if (!resultOk(statusBefore)) {
-        var precheckFailure = createFailureRecord(config, source, extractMessage(statusBefore) || "获取签到状态失败", {
+        var precheckFailure = createErrorRecord(config, source, statusBefore, {
             statusBefore: statusBefore
-        });
+        }, "获取签到状态失败");
         saveRecord(ctx, precheckFailure);
         return precheckFailure;
     }
@@ -87,6 +102,8 @@ async function executeCheckinFlow(ctx, config, source) {
             checkedAt: nowIso(),
             source: source,
             lastError: "",
+            verificationState: "precheck",
+            errorCategory: "",
             raw: {
                 statusBefore: statusBefore
             }
@@ -95,12 +112,66 @@ async function executeCheckinFlow(ctx, config, source) {
         return alreadyRecord;
     }
 
-    var signPayload = await postSign(ctx, config);
-    if (!resultOk(signPayload)) {
-        var signFailure = createFailureRecord(config, source, extractMessage(signPayload) || "签到失败", {
+    var signPayload = null;
+    var signError = null;
+    try {
+        signPayload = await postSign(ctx, config);
+    } catch (e) {
+        signError = e;
+    }
+
+    if (signError || !resultOk(signPayload)) {
+        var statusVerify = null;
+        var statusVerifyError = null;
+        try {
+            statusVerify = await fetchStatus(ctx, config);
+        } catch (e2) {
+            statusVerifyError = e2;
+        }
+
+        var verifyData = resultOk(statusVerify) ? ensureObject(statusVerify.data) : {};
+        if (resultOk(statusVerify) && toInt(verifyData.currentSignStatus) === 1) {
+            var recoveredRecord = createRecord({
+                dateKey: todayKey(),
+                status: "success",
+                title: "签到成功",
+                message: buildRecoveredSuccessMessage(signPayload, verifyData),
+                consecutiveDays: pickFirstNumber([
+                    toIntOrNull(verifyData.consecutiveDays),
+                    toIntOrNull(verifyData.continuousDays),
+                    toIntOrNull(statusData.consecutiveDays),
+                    toIntOrNull(statusData.continuousDays)
+                ]),
+                checkedAt: nowIso(),
+                source: source,
+                lastError: signError ? safeMsg(signError) : extractMessage(signPayload),
+                verificationState: "post_failure_recheck",
+                errorCategory: signError ? normalizeErrorCategory(signError) : normalizeErrorCategory(signPayload),
+                raw: {
+                    statusBefore: statusBefore,
+                    sign: signPayload,
+                    signError: serializeFailureInput(signError),
+                    statusAfter: statusVerify,
+                    statusAfterError: serializeFailureInput(statusVerifyError)
+                }
+            });
+            saveRecord(ctx, recoveredRecord);
+            return recoveredRecord;
+        }
+
+        var signFailureInput = pickBestFailureInput([
+            statusVerifyError,
+            statusVerify,
+            signError,
+            signPayload
+        ]);
+        var signFailure = createErrorRecord(config, source, signFailureInput, {
             statusBefore: statusBefore,
-            sign: signPayload
-        });
+            sign: signPayload,
+            signError: serializeFailureInput(signError),
+            statusAfter: statusVerify,
+            statusAfterError: serializeFailureInput(statusVerifyError)
+        }, extractMessage(signPayload) || "签到失败");
         saveRecord(ctx, signFailure);
         return signFailure;
     }
@@ -112,8 +183,8 @@ async function executeCheckinFlow(ctx, config, source) {
         if (!resultOk(statusAfter)) {
             refreshError = extractMessage(statusAfter) || "签到成功，但刷新状态失败";
         }
-    } catch (e2) {
-        refreshError = safeMsg(e2);
+    } catch (e3) {
+        refreshError = safeMsg(e3);
     }
 
     var statusAfterData = resultOk(statusAfter) ? ensureObject(statusAfter.data) : {};
@@ -131,10 +202,13 @@ async function executeCheckinFlow(ctx, config, source) {
         checkedAt: nowIso(),
         source: source,
         lastError: refreshError,
+        verificationState: "direct",
+        errorCategory: "",
         raw: {
             statusBefore: statusBefore,
             sign: signPayload,
-            statusAfter: statusAfter
+            statusAfter: statusAfter,
+            statusAfterError: refreshError ? { message: refreshError } : null
         }
     });
 
@@ -143,11 +217,21 @@ async function executeCheckinFlow(ctx, config, source) {
 }
 
 async function executeStatusQuery(ctx, config, source) {
-    var statusPayload = await fetchStatus(ctx, config);
+    var statusPayload;
+    try {
+        statusPayload = await fetchStatus(ctx, config);
+    } catch (statusError) {
+        var queryTransportFailure = createErrorRecord(config, source, statusError, {
+            statusError: serializeFailureInput(statusError)
+        }, "查询签到状态失败");
+        saveRecord(ctx, queryTransportFailure);
+        return queryTransportFailure;
+    }
+
     if (!resultOk(statusPayload)) {
-        var queryFailure = createFailureRecord(config, source, extractMessage(statusPayload) || "查询签到状态失败", {
+        var queryFailure = createErrorRecord(config, source, statusPayload, {
             status: statusPayload
-        });
+        }, "查询签到状态失败");
         saveRecord(ctx, queryFailure);
         return queryFailure;
     }
@@ -166,6 +250,8 @@ async function executeStatusQuery(ctx, config, source) {
         checkedAt: nowIso(),
         source: source,
         lastError: "",
+        verificationState: "status_query",
+        errorCategory: "",
         raw: {
             status: statusPayload
         }
@@ -206,18 +292,63 @@ async function requestJson(ctx, method, url, body, headers, timeoutMs) {
             var data = parseJson(text);
 
             if (!response || response.status !== 200) {
-                throw new Error(extractMessage(data) || ("HTTP " + (response ? response.status : "--")));
+                throw buildHttpError(response ? response.status : 0, data);
             }
 
             return data;
         } catch (e) {
-            lastError = e;
-            if (attempt >= maxAttempts) break;
+            lastError = normalizeRequestError(e);
+            if (attempt >= maxAttempts || !shouldRetryRequestError(lastError)) break;
             await delay(attempt * 1200);
         }
     }
 
-    throw new Error("请求 Ninebot 接口失败：" + safeMsg(lastError));
+    if (lastError && /^请求 Ninebot 接口失败：/.test(safeMsg(lastError))) {
+        throw lastError;
+    }
+    throw decorateError(new Error("请求 Ninebot 接口失败：" + safeMsg(lastError)), lastError);
+}
+
+function normalizeRequestError(error) {
+    if (error instanceof Error || (error && typeof error === "object")) {
+        if (!error.errorCategory) {
+            error.errorCategory = normalizeErrorCategory(error);
+        }
+        return error;
+    }
+    var wrapped = new Error(safeMsg(error));
+    wrapped.errorCategory = normalizeErrorCategory(error);
+    return wrapped;
+}
+
+function buildHttpError(status, payload) {
+    var error = new Error(extractMessage(payload) || ("HTTP " + (status || "--")));
+    error.httpStatus = status || 0;
+    error.responsePayload = payload || null;
+    error.responseMessage = extractMessage(payload);
+    error.errorCategory = normalizeErrorCategory({
+        httpStatus: status,
+        responseMessage: extractMessage(payload)
+    });
+    return error;
+}
+
+function shouldRetryRequestError(error) {
+    var status = toIntOrNull(error && error.httpStatus);
+    if (status === 401 || status === 403) return false;
+    if (status != null && status >= 400 && status < 500) return false;
+    var category = normalizeErrorCategory(error);
+    if (category === "auth_expired" || category === "invalid_json") return false;
+    return true;
+}
+
+function decorateError(target, source) {
+    if (!target || !source) return target;
+    if (source.httpStatus != null) target.httpStatus = source.httpStatus;
+    if (source.responsePayload != null) target.responsePayload = source.responsePayload;
+    if (source.responseMessage != null) target.responseMessage = source.responseMessage;
+    if (source.errorCategory != null) target.errorCategory = source.errorCategory;
+    return target;
 }
 
 function readConfig(ctx) {
@@ -275,7 +406,7 @@ async function maybeNotify(ctx, config, record) {
     var shouldNotify = false;
     if (record.status === "success" || record.status === "already_signed") {
         shouldNotify = !!config.notifyOnSuccess;
-    } else if (record.status === "failed") {
+    } else if (record.status === "failed" || record.status === "auth_expired") {
         shouldNotify = !!config.notifyOnFailure;
     }
 
@@ -314,9 +445,42 @@ function loadRecord(ctx) {
     }
 }
 
+function loadHistory(ctx) {
+    try {
+        var raw = ctx && ctx.storage && typeof ctx.storage.getJSON === "function"
+            ? ctx.storage.getJSON(HISTORY_STORAGE_KEY)
+            : null;
+        return normalizeHistoryEntries(raw);
+    } catch (_) {
+        return [];
+    }
+}
+
 function saveRecord(ctx, record) {
     if (!ctx || !ctx.storage || typeof ctx.storage.setJSON !== "function") return;
-    ctx.storage.setJSON(STORAGE_KEY, createRecord(record));
+    var normalized = createRecord(record);
+    ctx.storage.setJSON(STORAGE_KEY, normalized);
+    updateHistory(ctx, normalized);
+}
+
+function saveHistory(ctx, history) {
+    if (!ctx || !ctx.storage || typeof ctx.storage.setJSON !== "function") return;
+    ctx.storage.setJSON(HISTORY_STORAGE_KEY, normalizeHistoryEntries(history));
+}
+
+function updateHistory(ctx, record) {
+    if (!shouldTrackHistory(record)) return;
+    var history = loadHistory(ctx);
+    var entry = createHistoryEntry(record);
+    if (!entry) return;
+
+    var next = [entry];
+    for (var i = 0; i < history.length; i++) {
+        if (history[i].dateKey !== entry.dateKey) {
+            next.push(history[i]);
+        }
+    }
+    saveHistory(ctx, next);
 }
 
 function createRecord(input) {
@@ -330,20 +494,98 @@ function createRecord(input) {
         checkedAt: trim(data.checkedAt) || nowIso(),
         source: trim(data.source),
         lastError: trim(data.lastError),
+        verificationState: trim(data.verificationState) || "direct",
+        errorCategory: trim(data.errorCategory),
         raw: data.raw || null
     };
 }
 
+function createHistoryEntry(input) {
+    var data = ensureObject(input);
+    var dateKey = trim(data.dateKey);
+    var status = trim(data.status);
+    if (!dateKey || !status) return null;
+    return {
+        dateKey: dateKey,
+        status: status,
+        checkedAt: trim(data.checkedAt) || nowIso(),
+        verificationState: trim(data.verificationState)
+    };
+}
+
+function normalizeHistoryEntries(input) {
+    if (!Array.isArray(input)) return [];
+    var latestByDate = {};
+    for (var i = 0; i < input.length; i++) {
+        var entry = createHistoryEntry(input[i]);
+        if (!entry) continue;
+        var prev = latestByDate[entry.dateKey];
+        if (!prev || timeValue(entry.checkedAt) >= timeValue(prev.checkedAt)) {
+            latestByDate[entry.dateKey] = entry;
+        }
+    }
+
+    var keys = Object.keys(latestByDate).sort(function (a, b) {
+        if (a === b) return 0;
+        return a < b ? 1 : -1;
+    });
+
+    var list = [];
+    for (var j = 0; j < keys.length && j < HISTORY_DAYS; j++) {
+        list.push(latestByDate[keys[j]]);
+    }
+    return list;
+}
+
+function shouldTrackHistory(record) {
+    return !!record && (
+        record.status === "success"
+        || record.status === "already_signed"
+        || record.status === "failed"
+        || record.status === "auth_expired"
+        || record.status === "not_signed"
+    );
+}
+
+function buildHistorySummary(history) {
+    var items = normalizeHistoryEntries(history);
+    var map = {};
+    for (var i = 0; i < items.length; i++) {
+        map[items[i].dateKey] = historyStatusSymbol(items[i].status);
+    }
+
+    var parts = [];
+    var now = new Date();
+    for (var offset = HISTORY_DAYS - 1; offset >= 0; offset--) {
+        var day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
+        parts.push(map[dateKeyFromDate(day)] || "·");
+    }
+    return parts.join("");
+}
+
+function historyStatusSymbol(status) {
+    if (status === "success" || status === "already_signed") return "✓";
+    if (status === "auth_expired") return "!";
+    if (status === "failed") return "✕";
+    if (status === "not_signed") return "○";
+    return "·";
+}
+
 function createPendingRecord(config) {
+    var scheduleInfo = resolveScheduleInfo(config && config.dailyCronText);
     return createRecord({
         dateKey: todayKey(),
         status: "pending",
         title: "等待签到",
-        message: "等待今日 09:00 自动执行签到",
+        message: scheduleInfo.nextRunText !== "未知"
+            ? ("下次执行：" + scheduleInfo.nextRunDetailText)
+            : "等待自动执行签到",
         consecutiveDays: null,
         checkedAt: nowIso(),
         source: "widget",
         lastError: "",
+        verificationState: "direct",
+        errorCategory: "",
         raw: null
     });
 }
@@ -358,11 +600,13 @@ function createConfigErrorRecord(config, message) {
         checkedAt: nowIso(),
         source: "widget",
         lastError: message || "",
+        verificationState: "direct",
+        errorCategory: "config_error",
         raw: null
     });
 }
 
-function createFailureRecord(config, source, message, raw) {
+function createFailureRecord(config, source, message, raw, errorCategory) {
     return createRecord({
         dateKey: todayKey(),
         status: "failed",
@@ -372,8 +616,81 @@ function createFailureRecord(config, source, message, raw) {
         checkedAt: nowIso(),
         source: source || "schedule",
         lastError: message || "未知错误",
+        verificationState: "direct",
+        errorCategory: trim(errorCategory) || "unknown",
         raw: raw || null
     });
+}
+
+function createAuthExpiredRecord(config, source, message, raw) {
+    return createRecord({
+        dateKey: todayKey(),
+        status: "auth_expired",
+        title: "授权已失效",
+        message: message || "Authorization 可能已过期，需要重新抓包更新",
+        consecutiveDays: null,
+        checkedAt: nowIso(),
+        source: source || "schedule",
+        lastError: message || "Authorization 可能已过期，需要重新抓包更新",
+        verificationState: "direct",
+        errorCategory: "auth_expired",
+        raw: raw || null
+    });
+}
+
+function createErrorRecord(config, source, failureInput, raw, fallbackMessage) {
+    var info = resolveFailureInfo(failureInput, fallbackMessage);
+    if (info.status === "auth_expired") {
+        return createAuthExpiredRecord(config, source, info.message, raw);
+    }
+    return createFailureRecord(config, source, info.message, raw, info.errorCategory);
+}
+
+function resolveFailureInfo(failureInput, fallbackMessage) {
+    var message = extractFailureMessage(failureInput) || fallbackMessage || "未知错误";
+    var status = isAuthExpiredInput(failureInput, message) ? "auth_expired" : "failed";
+    return {
+        status: status,
+        message: message,
+        errorCategory: status === "auth_expired" ? "auth_expired" : normalizeErrorCategory(failureInput, message)
+    };
+}
+
+function pickBestFailureInput(inputs) {
+    for (var i = 0; i < inputs.length; i++) {
+        if (inputs[i] && isAuthExpiredInput(inputs[i])) return inputs[i];
+    }
+    for (var j = 0; j < inputs.length; j++) {
+        if (inputs[j]) return inputs[j];
+    }
+    return null;
+}
+
+function serializeFailureInput(input) {
+    if (!input) return null;
+    if (typeof input === "string") {
+        return {
+            message: trim(input)
+        };
+    }
+    if (input instanceof Error || typeof input.message === "string" || input.httpStatus != null) {
+        return {
+            message: safeMsg(input),
+            httpStatus: toIntOrNull(input.httpStatus),
+            responseMessage: trim(input.responseMessage),
+            errorCategory: trim(input.errorCategory)
+        };
+    }
+    if (typeof input === "object") {
+        return {
+            code: toIntOrNull(input.code),
+            message: extractMessage(input),
+            errorCategory: trim(input.errorCategory)
+        };
+    }
+    return {
+        message: safeMsg(input)
+    };
 }
 
 function isSuccessfulToday(record) {
@@ -382,52 +699,66 @@ function isSuccessfulToday(record) {
         && (record.status === "success" || record.status === "already_signed");
 }
 
-function buildViewModel(record, config) {
+function buildViewModel(record, config, history) {
     var theme = resolveTheme(config.accentColor);
     var currentKey = todayKey();
     var isToday = record && record.dateKey === currentKey;
+    var scheduleInfo = resolveScheduleInfo(config.dailyCronText);
+    var historyText = buildHistorySummary(history);
     var primary = "等待签到";
-    var secondary = "等待今日 09:00 自动执行签到";
+    var secondary = record.message || (scheduleInfo.nextRunText !== "未知"
+        ? ("下次执行：" + scheduleInfo.nextRunDetailText)
+        : "等待自动执行签到");
     var statusColor = "#FBBF24";
     var symbol = "sf-symbol:clock.badge.questionmark.fill";
-    var footerText = "等待今日 09:00 自动签到";
+    var footerText = scheduleInfo.nextRunText !== "未知" ? ("下次 " + scheduleInfo.nextRunText) : "等待自动签到";
 
     if (record.status === "success" || record.status === "already_signed") {
         primary = "今日已签到";
         secondary = record.message || buildAlreadySignedMessage(record);
         statusColor = config.accentColor;
         symbol = "sf-symbol:checkmark.seal.fill";
-        footerText = "今日签到结果已写入缓存";
+        footerText = scheduleInfo.nextRunText !== "未知" ? ("下次 " + scheduleInfo.nextRunText) : "今日签到结果已写入缓存";
+    } else if (record.status === "auth_expired") {
+        primary = "授权失效";
+        secondary = record.message || "Authorization 可能已过期，需要重新抓包更新";
+        statusColor = "#F87171";
+        symbol = "sf-symbol:lock.fill";
+        footerText = "更新授权后可手动重试";
     } else if (record.status === "failed") {
         primary = isToday ? "签到失败" : "上次签到失败";
         secondary = record.message || record.lastError || "未知错误";
         statusColor = "#FB923C";
         symbol = "sf-symbol:exclamationmark.triangle.fill";
-        footerText = "可手动运行签到脚本重试";
+        footerText = scheduleInfo.nextRunText !== "未知"
+            ? ("可手动重试，或等待 " + scheduleInfo.nextRunText)
+            : "可手动运行签到脚本重试";
     } else if (record.status === "not_signed") {
         primary = "今日未签到";
         secondary = record.message || "服务器显示今日尚未签到";
         statusColor = "#FBBF24";
         symbol = "sf-symbol:xmark.seal.fill";
-        footerText = "可手动运行签到脚本立即补签";
+        footerText = scheduleInfo.nextRunText !== "未知"
+            ? ("可手动补签，或等待 " + scheduleInfo.nextRunText)
+            : "可手动运行签到脚本立即补签";
     } else if (!isToday) {
         primary = "今日未执行";
         secondary = record.checkedAt
             ? "上次：" + formatMonthDayTime(record.checkedAt) + " · " + (record.title || statusText(record.status))
-            : "等待今日 09:00 自动执行签到";
+            : (scheduleInfo.nextRunText !== "未知" ? ("下次执行：" + scheduleInfo.nextRunDetailText) : "等待自动执行签到");
         statusColor = "#60A5FA";
         symbol = "sf-symbol:clock.fill";
-        footerText = "等待今日 09:00 自动签到";
+        footerText = scheduleInfo.nextRunText !== "未知" ? ("下次 " + scheduleInfo.nextRunText) : "等待自动签到";
     }
 
     if ((record.status === "success" || record.status === "already_signed") && !isToday) {
         primary = "今日未执行";
         secondary = record.checkedAt
             ? "上次：" + formatMonthDayTime(record.checkedAt) + " · 已签到"
-            : "等待今日 09:00 自动执行签到";
+            : (scheduleInfo.nextRunText !== "未知" ? ("下次执行：" + scheduleInfo.nextRunDetailText) : "等待自动执行签到");
         statusColor = "#60A5FA";
         symbol = "sf-symbol:clock.fill";
-        footerText = "等待今日 09:00 自动签到";
+        footerText = scheduleInfo.nextRunText !== "未知" ? ("下次 " + scheduleInfo.nextRunText) : "等待自动签到";
     }
 
     return {
@@ -444,7 +775,13 @@ function buildViewModel(record, config) {
         refreshAfter: new Date(Date.now() + config.refreshMinutes * 60000).toISOString(),
         isToday: isToday,
         status: record.status,
-        scheduleText: "每天 " + config.dailyCronText,
+        scheduleText: scheduleInfo.scheduleText,
+        nextRunText: scheduleInfo.nextRunText,
+        countdownText: scheduleInfo.countdownText,
+        nextRunDetailText: scheduleInfo.nextRunDetailText,
+        historyText: historyText,
+        historySummaryText: "近7天 " + historyText,
+        verificationState: record.verificationState,
         manualCheckinText: "工具→脚本：运行 " + config.manualCheckinScriptName,
         manualStatusText: "工具→脚本：运行 " + config.manualStatusScriptName
     };
@@ -516,7 +853,7 @@ function buildSmall(vm) {
         spacer(6),
         text(buildSmallMetaText(vm), 10, "medium", vm.theme.muted, { maxLines: 1, minScale: 0.8 }),
         spacer(),
-        text(buildCompactFooterText(vm, "small"), 10, "medium", vm.theme.footer, { maxLines: 1, minScale: 0.8 })
+        text(buildCompactFooterText(vm, "small"), 10, "medium", vm.theme.footer, { maxLines: 1, minScale: 0.78 })
     ], vm, [12, 12, 12, 12]);
 }
 
@@ -554,14 +891,15 @@ function buildMedium(vm) {
             valueSize: 11,
             maxLines: 1,
             minScale: 0.82
-        })
+        }),
+        spacer(),
+        text(buildMediumFooterText(vm), 10, "medium", vm.theme.footer, { maxLines: 1, minScale: 0.72 })
     ], vm, [14, 14, 14, 14]);
 }
 
 function buildLarge(vm) {
     return shell([
         text(vm.title, 16, "bold", vm.theme.text, { maxLines: 1, shadowColor: vm.theme.titleShadow, shadowRadius: 6 }),
-        spacer(2),
         spacer(8),
         separator(vm.theme),
         spacer(10),
@@ -574,6 +912,10 @@ function buildLarge(vm) {
         infoRow("最近", vm.updatedText, vm.theme, { maxLines: 1 }),
         spacer(6),
         infoRow("定时", vm.scheduleText, vm.theme, { maxLines: 1 }),
+        spacer(6),
+        infoRow("下次", vm.nextRunDetailText, vm.theme, { maxLines: 2 }),
+        spacer(6),
+        infoRow("近7天", vm.historyText, vm.theme, { maxLines: 1 }),
         spacer(6),
         infoRow("手动签", vm.manualCheckinText, vm.theme, { maxLines: 2 }),
         spacer(6),
@@ -606,7 +948,7 @@ function shell(children, vm, padding) {
 function footer(vm) {
     return row([
         text(vm.footerText, 10, "medium", vm.theme.footer, { flex: 1, maxLines: 1, minScale: 0.78 }),
-        text(vm.updatedText, 10, "medium", vm.theme.subtle, { maxLines: 1, minScale: 0.82 })
+        text(vm.nextRunText && vm.nextRunText !== "未知" ? vm.nextRunText : vm.updatedText, 10, "medium", vm.theme.subtle, { maxLines: 1, minScale: 0.82 })
     ], { alignItems: "center", gap: 8 });
 }
 
@@ -615,12 +957,33 @@ function buildSmallMetaText(vm) {
     if ((vm.status === "success" || vm.status === "already_signed" || vm.status === "not_signed") && streak !== "连签 --") {
         return streak;
     }
+    if (vm.status === "success" && vm.verificationState === "post_failure_recheck") {
+        return "复查确认成功";
+    }
     return "更新 " + vm.updatedText;
 }
 
+function buildMediumFooterText(vm) {
+    var parts = [];
+    if (vm.historyText) {
+        parts.push("近7天 " + vm.historyText);
+    }
+    if (vm.status === "auth_expired") {
+        parts.push("更新授权后重试");
+    } else if (vm.nextRunText && vm.nextRunText !== "未知") {
+        parts.push("下次 " + buildShortNextRunText(vm.nextRunText));
+    } else if (vm.scheduleText) {
+        parts.push(vm.scheduleText);
+    }
+    return clipText(parts.join(" · "), 34);
+}
+
 function buildCompactFooterText(vm, family) {
-    if (vm.status === "success" || vm.status === "already_signed") {
-        return vm.isToday ? "今日签到已完成" : "等待今日签到";
+    if (vm.status === "auth_expired") {
+        return family === "small" ? "更新授权后重试" : "更新授权后手动重试";
+    }
+    if (vm.nextRunText && vm.nextRunText !== "未知") {
+        return clipText("下次 " + buildShortNextRunText(vm.nextRunText), family === "small" ? 14 : 20);
     }
     if (vm.status === "failed") {
         return family === "small" ? "可手动重试" : "稍后可手动重试";
@@ -628,7 +991,7 @@ function buildCompactFooterText(vm, family) {
     if (vm.status === "not_signed") {
         return "可手动补签";
     }
-    return "09:00 自动签到";
+    return "等待自动签到";
 }
 
 function compactSecondary(vm, maxLength) {
@@ -636,9 +999,15 @@ function compactSecondary(vm, maxLength) {
     if (!value) return "--";
     value = value
         .replace(/^服务器显示/, "")
-        .replace(/^等待今日 09:00 自动执行签到$/, "等待 09:00 自动签到")
+        .replace(/^下次执行：/, "下次 ")
         .replace(/^状态刷新提示：/, "刷新提示：");
     return clipText(value, maxLength || 40);
+}
+
+function buildShortNextRunText(value) {
+    var textValue = trim(value);
+    if (!textValue || textValue === "未知") return "待定";
+    return textValue.replace(/\s+/g, "");
 }
 
 function infoRow(label, value, theme, options) {
@@ -773,8 +1142,11 @@ function hexToRgba(color, alpha, fallback) {
 }
 
 function buildInlineText(vm) {
+    if (vm.status === "auth_expired") {
+        return clipText(vm.title + " 授权失效", 28);
+    }
     if (vm.status === "failed" && vm.isToday) {
-        return clipText(vm.title + " 失败: " + vm.secondary, 28);
+        return clipText(vm.title + " 失败 · 下次 " + buildShortNextRunText(vm.nextRunText), 28);
     }
     if (vm.status === "not_signed" && vm.isToday) {
         return clipText(vm.title + " 未签到 · 可手动补签", 28);
@@ -782,7 +1154,7 @@ function buildInlineText(vm) {
     if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) {
         return clipText(vm.title + " 已签到 · " + compactStreak(vm.streakText), 28);
     }
-    return clipText(vm.title + " 等待 09:00 自动签到", 28);
+    return clipText(vm.title + " 下次 " + buildShortNextRunText(vm.nextRunText), 28);
 }
 
 function buildAlreadySignedMessage(data) {
@@ -801,6 +1173,24 @@ function buildNotSignedMessage(data) {
     ]);
     if (days) return "服务器显示今日未签到，当前连签记录 " + days + " 天";
     return "服务器显示今日尚未签到";
+}
+
+function buildRecoveredSuccessMessage(signPayload, statusAfterData) {
+    var parts = [];
+    var days = pickFirstNumber([
+        toIntOrNull(statusAfterData && statusAfterData.consecutiveDays),
+        toIntOrNull(statusAfterData && statusAfterData.continuousDays)
+    ]);
+    var reward = extractRewardText(signPayload);
+
+    if (days) {
+        parts.push("连续签到 " + days + " 天");
+    }
+    if (reward) {
+        parts.push(reward);
+    }
+    parts.push("接口响应异常，但状态复查确认已签到");
+    return parts.join(" · ");
 }
 
 function buildSuccessMessage(signPayload, statusAfterData, refreshError) {
@@ -851,6 +1241,7 @@ function extractRewardText(payload) {
 }
 
 function resolveCompactStatus(vm) {
+    if (vm.status === "auth_expired") return "过期";
     if (vm.status === "failed") return "失败";
     if (vm.status === "not_signed") return "未签";
     if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) return "已签";
@@ -863,7 +1254,45 @@ function resultOk(payload) {
 
 function extractMessage(payload) {
     if (!payload) return "";
-    return trim(payload.msg) || trim(payload.message) || trim(payload.errorMsg) || trim(payload.error_message);
+    return trim(payload.msg) || trim(payload.message) || trim(payload.errorMsg) || trim(payload.error_message) || trim(payload.responseMessage);
+}
+
+function extractFailureMessage(input) {
+    if (!input) return "";
+    if (typeof input === "string") return trim(input);
+    if (input instanceof Error || typeof input.message === "string" || input.httpStatus != null) {
+        return trim(input.responseMessage) || trim(input.message);
+    }
+    return extractMessage(input);
+}
+
+function isAuthExpiredInput(input, providedMessage) {
+    var status = toIntOrNull(input && input.httpStatus);
+    if (status === 401 || status === 403) return true;
+    return containsAuthExpiredToken(providedMessage || extractFailureMessage(input));
+}
+
+function containsAuthExpiredToken(message) {
+    var value = trim(message).toLowerCase();
+    if (!value) return false;
+    return /unauthorized|authorization.+(expired|invalid|fail)|token\s*expired|token已过期|token过期|登录失效|授权失效|授权过期|鉴权失败|鉴权过期|认证失败|请重新登录|重新登录|登录状态已失效/.test(value);
+}
+
+function normalizeErrorCategory(input, providedMessage) {
+    var explicit = trim(input && input.errorCategory);
+    if (explicit) return explicit;
+
+    var status = toIntOrNull(input && input.httpStatus);
+    var message = trim(providedMessage || extractFailureMessage(input)).toLowerCase();
+
+    if (status === 401 || status === 403 || containsAuthExpiredToken(message)) return "auth_expired";
+    if (status >= 500) return "http_5xx";
+    if (status >= 400) return "http_" + status;
+    if (/timeout|timed out|超时/.test(message)) return "network_timeout";
+    if (/json/.test(message)) return "invalid_json";
+    if (/network|socket|connection|连接|中断|断开|dns/.test(message)) return "network_error";
+    if (input && typeof input === "object" && Number(input.code) !== 0 && isFinite(Number(input.code))) return "biz_" + Number(input.code);
+    return "unknown";
 }
 
 function parseJson(text) {
@@ -926,8 +1355,65 @@ function nowIso() {
 }
 
 function todayKey() {
+    return dateKeyFromDate(new Date());
+}
+
+function dateKeyFromDate(date) {
+    return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate());
+}
+
+function resolveScheduleInfo(cronText) {
+    var rawText = trim(cronText) || DEFAULT_DAILY_CRON;
+    var parsed = parseDailyCron(rawText);
+    if (!parsed) {
+        return {
+            scheduleText: "每天 " + rawText,
+            nextRunText: "未知",
+            countdownText: "",
+            nextRunDetailText: "下次执行未知"
+        };
+    }
+
+    var timeText = pad2(parsed.hour) + ":" + pad2(parsed.minute);
     var now = new Date();
-    return now.getFullYear() + "-" + pad2(now.getMonth() + 1) + "-" + pad2(now.getDate());
+    var target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parsed.hour, parsed.minute, 0, 0);
+    var label = "今天";
+    if (now.getTime() >= target.getTime()) {
+        target.setDate(target.getDate() + 1);
+        label = "明天";
+    }
+
+    var nextRunText = label + " " + timeText;
+    var countdownText = formatCountdown(target.getTime() - now.getTime());
+    return {
+        scheduleText: "每天 " + timeText + " 自动签到",
+        nextRunText: nextRunText,
+        countdownText: countdownText,
+        nextRunDetailText: countdownText ? (nextRunText + " · " + countdownText) : nextRunText
+    };
+}
+
+function parseDailyCron(value) {
+    var match = trim(value).match(/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/);
+    if (!match) return null;
+    var minute = parseInt(match[1], 10);
+    var hour = parseInt(match[2], 10);
+    if (!isFinite(minute) || !isFinite(hour)) return null;
+    if (minute < 0 || minute > 59 || hour < 0 || hour > 23) return null;
+    return {
+        minute: minute,
+        hour: hour
+    };
+}
+
+function formatCountdown(ms) {
+    if (!isFinite(ms)) return "";
+    if (ms <= 0) return "即将执行";
+    var totalMinutes = Math.ceil(ms / 60000);
+    if (totalMinutes < 60) return "还有" + totalMinutes + "分";
+    var hours = Math.floor(totalMinutes / 60);
+    var minutes = totalMinutes % 60;
+    return "还有" + hours + "小时" + (minutes ? (minutes + "分") : "");
 }
 
 function formatMonthDayTime(iso) {
@@ -948,6 +1434,12 @@ function clipText(value, maxLength) {
     return textValue.slice(0, Math.max(0, maxLength - 1)) + "…";
 }
 
+function timeValue(value) {
+    var date = new Date(value);
+    var time = date.getTime();
+    return isNaN(time) ? 0 : time;
+}
+
 function normalizeAction(value) {
     var normalized = trim(value).toLowerCase();
     if (normalized === "status" || normalized === "query" || normalized === "query-status") return "status";
@@ -958,6 +1450,7 @@ function statusText(status) {
     if (status === "success") return "签到成功";
     if (status === "already_signed") return "今日已签到";
     if (status === "not_signed") return "今日未签到";
+    if (status === "auth_expired") return "授权已失效";
     if (status === "failed") return "签到失败";
     return "等待签到";
 }
