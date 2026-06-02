@@ -49,12 +49,12 @@ scriptings:
 # - 小组件会保留最近 7 天签到摘要：✓ 已签，✕ 失败，! 授权失效，○ 未签，· 无记录（左旧右新）
 - schedule:
     name: ninebot-checkin
-    cron: "0 9 * * *"
+    cron: "0 * * * *"
     script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/ninebot-widget.js
     timeout: 30
     update_interval: 86400
     env:
-      DAILY_CRON_TEXT: "0 9 * * *"
+      DAILY_CRON_TEXT: "0 * * * *"
 
 - generic:
     name: ninebot-widget
@@ -62,7 +62,7 @@ scriptings:
     timeout: 30
     update_interval: 86400
     env:
-      DAILY_CRON_TEXT: "0 9 * * *"
+      DAILY_CRON_TEXT: "0 * * * *"
 
 widgets:
 - name: Ninebot 签到
