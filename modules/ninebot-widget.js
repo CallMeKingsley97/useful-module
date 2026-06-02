@@ -10,7 +10,7 @@ var DEFAULT_TIMEOUT_MS = 15000;
 var DEFAULT_REFRESH_MINUTES = 30;
 var DEFAULT_ACCENT_COLOR = "#34D399";
 var DEFAULT_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Segway v6 C 609033420";
-var DEFAULT_DAILY_CRON = "0 9 * * *";
+var DEFAULT_DAILY_CRON = "0 * * * *";
 
 export default async function (ctx) {
     if (ctx && ctx.cron) {
@@ -60,7 +60,21 @@ async function renderWidget(ctx) {
 async function executeCheckinFlow(ctx, config, source) {
     var cached = loadRecord(ctx);
     if (!config.forceCheckin && isSuccessfulToday(cached)) {
-        return cached;
+        return createRecord({
+            dateKey: todayKey(),
+            status: "already_signed",
+            title: "今日已签到",
+            message: "本地记录显示今日已签到，本次未重复提交签到请求",
+            consecutiveDays: cached.consecutiveDays,
+            checkedAt: nowIso(),
+            source: source,
+            lastError: "",
+            verificationState: "local_success_cache",
+            errorCategory: "",
+            raw: {
+                cachedRecord: cached
+            }
+        });
     }
 
     var statusBefore;
@@ -312,8 +326,8 @@ function readConfig(ctx) {
         accentColor: trim(env.ACCENT_COLOR) || DEFAULT_ACCENT_COLOR,
         language: trim(env.LANGUAGE) || "zh",
         userAgent: trim(env.USER_AGENT) || DEFAULT_USER_AGENT,
-        notifyOnSuccess: isTrue(env.NOTIFY_ON_SUCCESS),
-        notifyOnFailure: isTrue(env.NOTIFY_ON_FAILURE),
+        notifyOnSuccess: readBool(env.NOTIFY_ON_SUCCESS, true),
+        notifyOnFailure: readBool(env.NOTIFY_ON_FAILURE, true),
         forceCheckin: isTrue(env.FORCE_CHECKIN),
         dailyCronText: trim(env.DAILY_CRON_TEXT) || DEFAULT_DAILY_CRON
     };
@@ -352,17 +366,17 @@ async function maybeNotify(ctx, config, record) {
     var shouldNotify = false;
     if (record.status === "success" || record.status === "already_signed") {
         shouldNotify = !!config.notifyOnSuccess;
-    } else if (record.status === "failed" || record.status === "auth_expired") {
+    } else if (record.status === "failed" || record.status === "auth_expired" || record.status === "not_signed") {
         shouldNotify = !!config.notifyOnFailure;
     }
 
     if (!shouldNotify) return;
 
-    var body = record.message || record.title || "Ninebot 签到任务已执行";
+    var notifyText = buildNotifyText(record);
     var options = {
         title: config.title,
-        subtitle: record.title || statusText(record.status),
-        body: body,
+        subtitle: notifyText.subtitle,
+        body: notifyText.body,
         sound: true,
         duration: 6
     };
@@ -378,6 +392,61 @@ async function maybeNotify(ctx, config, record) {
         await ctx.notify(options);
     } catch (_) {
     }
+}
+
+function buildNotifyText(record) {
+    if (record.status === "success") {
+        if (record.verificationState === "post_failure_recheck") {
+            return {
+                subtitle: "本次签到已确认成功",
+                body: record.message || "接口响应异常，但状态复查确认今日已签到"
+            };
+        }
+        return {
+            subtitle: "本次签到成功",
+            body: record.message || buildStreakNotifyText(record)
+        };
+    }
+
+    if (record.status === "already_signed") {
+        return {
+            subtitle: "今日已签到",
+            body: record.message || "本次执行未重复提交签到请求"
+        };
+    }
+
+    if (record.status === "auth_expired") {
+        return {
+            subtitle: "本次签到失败",
+            body: record.message || "授权已失效，需要更新 Authorization"
+        };
+    }
+
+    if (record.status === "failed") {
+        return {
+            subtitle: "本次签到失败",
+            body: record.message || record.lastError || "请稍后等待下一次自动重试"
+        };
+    }
+
+    if (record.status === "not_signed") {
+        return {
+            subtitle: "今日未签到",
+            body: record.message || "状态查询显示今日尚未签到"
+        };
+    }
+
+    return {
+        subtitle: record.title || statusText(record.status),
+        body: record.message || "Ninebot 签到任务已执行"
+    };
+}
+
+function buildStreakNotifyText(record) {
+    if (typeof record.consecutiveDays === "number" && isFinite(record.consecutiveDays)) {
+        return "连续签到 " + record.consecutiveDays + " 天";
+    }
+    return "签到接口已返回成功";
 }
 
 function loadRecord(ctx) {
@@ -1313,6 +1382,14 @@ function isTrue(value) {
     return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
+function readBool(value, fallback) {
+    var normalized = trim(value).toLowerCase();
+    if (!normalized) return !!fallback;
+    if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on") return true;
+    if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off") return false;
+    return !!fallback;
+}
+
 function clampInt(value, min, max, fallback) {
     var num = parseInt(value, 10);
     if (!isFinite(num)) return fallback;
@@ -1360,46 +1437,82 @@ function dateKeyFromDate(date) {
 
 function resolveScheduleInfo(cronText) {
     var rawText = trim(cronText) || DEFAULT_DAILY_CRON;
-    var parsed = parseDailyCron(rawText);
+    var parsed = parseCronSchedule(rawText);
     if (!parsed) {
         return {
-            scheduleText: "每天 " + rawText,
+            scheduleText: rawText + " 自动签到",
             nextRunText: "未知",
             countdownText: "",
             nextRunDetailText: "下次执行未知"
         };
     }
 
-    var timeText = pad2(parsed.hour) + ":" + pad2(parsed.minute);
     var now = new Date();
-    var target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parsed.hour, parsed.minute, 0, 0);
-    var label = "今天";
-    if (now.getTime() >= target.getTime()) {
-        target.setDate(target.getDate() + 1);
-        label = "明天";
-    }
-
-    var nextRunText = label + " " + timeText;
+    var target = resolveNextRunTarget(now, parsed);
+    var nextRunText = formatNextRunText(now, target);
     var countdownText = formatCountdown(target.getTime() - now.getTime());
     return {
-        scheduleText: "每天 " + timeText + " 自动签到",
+        scheduleText: parsed.scheduleText,
         nextRunText: nextRunText,
         countdownText: countdownText,
         nextRunDetailText: countdownText ? (nextRunText + " · " + countdownText) : nextRunText
     };
 }
 
-function parseDailyCron(value) {
-    var match = trim(value).match(/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/);
-    if (!match) return null;
-    var minute = parseInt(match[1], 10);
-    var hour = parseInt(match[2], 10);
-    if (!isFinite(minute) || !isFinite(hour)) return null;
-    if (minute < 0 || minute > 59 || hour < 0 || hour > 23) return null;
+function parseCronSchedule(value) {
+    var parts = trim(value).split(/\s+/);
+    if (parts.length !== 5) return null;
+    if (parts[2] !== "*" || parts[3] !== "*" || parts[4] !== "*") return null;
+
+    if (!/^\d{1,2}$/.test(parts[0])) return null;
+    var minute = parseInt(parts[0], 10);
+    if (!isFinite(minute)) return null;
+    if (minute < 0 || minute > 59) return null;
+
+    if (parts[1] === "*") {
+        return {
+            type: "hourly",
+            minute: minute,
+            scheduleText: minute === 0 ? "每小时整点自动签到" : ("每小时 " + pad2(minute) + " 分自动签到")
+        };
+    }
+
+    if (!/^\d{1,2}$/.test(parts[1])) return null;
+    var hour = parseInt(parts[1], 10);
+    if (!isFinite(hour)) return null;
+    if (hour < 0 || hour > 23) return null;
     return {
+        type: "daily",
         minute: minute,
-        hour: hour
+        hour: hour,
+        scheduleText: "每天 " + pad2(hour) + ":" + pad2(minute) + " 自动签到"
     };
+}
+
+function resolveNextRunTarget(now, schedule) {
+    if (schedule.type === "hourly") {
+        var hourlyTarget = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), schedule.minute, 0, 0);
+        if (now.getTime() >= hourlyTarget.getTime()) {
+            hourlyTarget.setHours(hourlyTarget.getHours() + 1);
+        }
+        return hourlyTarget;
+    }
+
+    var dailyTarget = new Date(now.getFullYear(), now.getMonth(), now.getDate(), schedule.hour, schedule.minute, 0, 0);
+    if (now.getTime() >= dailyTarget.getTime()) {
+        dailyTarget.setDate(dailyTarget.getDate() + 1);
+    }
+    return dailyTarget;
+}
+
+function formatNextRunText(now, target) {
+    var timeText = pad2(target.getHours()) + ":" + pad2(target.getMinutes());
+    if (dateKeyFromDate(now) === dateKeyFromDate(target)) return "今天 " + timeText;
+
+    var tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    if (dateKeyFromDate(tomorrow) === dateKeyFromDate(target)) return "明天 " + timeText;
+
+    return pad2(target.getMonth() + 1) + "-" + pad2(target.getDate()) + " " + timeText;
 }
 
 function formatCountdown(ms) {

@@ -1,5 +1,5 @@
 name: "Ninebot Checkin"
-description: "基于 Authorization 与 Device ID 执行 Ninebot 每日签到，并在小组件中平铺展示最近签到结果"
+description: "基于 Authorization 与 Device ID 每小时检查 Ninebot 签到状态，未签到时执行签到，并在小组件中平铺展示最近签到结果"
 author: "kingsley"
 
 scriptings:
@@ -32,19 +32,21 @@ scriptings:
 # USER_AGENT (可选)
 #   自定义请求头 User-Agent，默认使用参考仓库中的移动端值
 #
-# NOTIFY_ON_SUCCESS (可选，默认 false)
-#   设为 true 时，定时签到成功或已签到后发送通知
+# NOTIFY_ON_SUCCESS (可选，默认 true)
+#   定时签到成功或已签到后发送通知；设为 false 时关闭成功类通知
 #
-# NOTIFY_ON_FAILURE (可选，默认 false)
-#   设为 true 时，定时签到失败后发送通知
+# NOTIFY_ON_FAILURE (可选，默认 true)
+#   定时签到失败、授权失效或仍未签到时发送通知；设为 false 时关闭失败类通知
 #
 # FORCE_CHECKIN (可选，默认 false)
-#   设为 true 时忽略当日成功缓存并重新尝试签到
+#   设为 true 时忽略本地成功缓存并重新查询签到状态；若服务器显示已签到，仍不会提交签到请求
 #
-# DAILY_CRON_TEXT (可选，默认 "0 9 * * *")
-#   小组件展示用的定时文本，不影响真实 cron；组件会据此推导“下次执行时间”
+# DAILY_CRON_TEXT (可选，默认 "0 * * * *")
+#   小组件展示用的定时文本，不影响真实 cron；支持每小时或每天一次，并据此推导“下次执行时间”
 #
 # 说明：
+# - 定时任务默认每小时执行一次；每次请求签到接口前都会先查询当前签到状态，已签到则不再提交签到
+# - 定时任务每次执行后默认发送手机通知，区分“本次签到成功”“今日已签到未重复提交”“本次签到失败”
 # - 若接口返回 401 / 403 或明确的鉴权失败文案，小组件会展示“授权失效”专用状态
 # - 小组件会保留最近 7 天签到摘要：✓ 已签，✕ 失败，! 授权失效，○ 未签，· 无记录（左旧右新）
 - schedule:
