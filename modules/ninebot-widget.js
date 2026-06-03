@@ -13,7 +13,8 @@ var DEFAULT_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_1 like Mac OS X)
 var DEFAULT_DAILY_CRON = "0 * * * *";
 
 export default async function (ctx) {
-    if (ctx && ctx.cron) {
+    var scriptName = trim(ctx && ctx.script && ctx.script.name);
+    if (scriptName === "ninebot-checkin") {
         return await runScheduledAction(ctx);
     }
     return await renderWidget(ctx || {});
@@ -361,7 +362,12 @@ function buildHeaders(config) {
 }
 
 async function maybeNotify(ctx, config, record) {
-    if (!ctx || typeof ctx.notify !== "function" || !record) return;
+    if (!ctx || typeof ctx.notify !== "function" || !record) {
+        if (ctx && typeof ctx.notify !== "function") {
+            console.log("ninebot notify skipped: ctx.notify is not a function, type=" + typeof ctx.notify);
+        }
+        return;
+    }
 
     var shouldNotify = false;
     if (record.status === "success" || record.status === "already_signed") {
@@ -390,7 +396,9 @@ async function maybeNotify(ctx, config, record) {
 
     try {
         await ctx.notify(options);
-    } catch (_) {
+        console.log("ninebot notify sent: " + JSON.stringify({ status: record.status, title: options.title, subtitle: options.subtitle }));
+    } catch (e) {
+        console.log("ninebot notify failed: " + (e && e.message ? e.message : String(e)));
     }
 }
 
