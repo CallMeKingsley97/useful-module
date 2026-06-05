@@ -10,7 +10,7 @@ var DEFAULT_TIMEOUT_MS = 15000;
 var DEFAULT_REFRESH_MINUTES = 30;
 var DEFAULT_ACCENT_COLOR = "#34D399";
 var DEFAULT_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Segway v6 C 609033420";
-var DEFAULT_DAILY_CRON = "0 * * * *";
+var DEFAULT_DAILY_CRON = "0 */2 * * *";
 
 export default async function (ctx) {
     var scriptName = trim(ctx && ctx.script && ctx.script.name);
