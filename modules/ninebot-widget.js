@@ -3,6 +3,9 @@ var HISTORY_STORAGE_KEY = "ninebot_checkin_history_v1";
 var HISTORY_DAYS = 7;
 var STATUS_URL = "https://cn-cbu-gateway.ninebot.com/portal/api/user-sign/v2/status";
 var SIGN_URL = "https://cn-cbu-gateway.ninebot.com/portal/api/user-sign/v2/sign";
+var BLIND_BOX_LIST_URL = "https://cn-cbu-gateway.ninebot.com/portal/api/user-sign/v2/blind-box/list";
+var BLIND_BOX_RECEIVE_URL = "https://cn-cbu-gateway.ninebot.com/portal/api/user-sign/v2/blind-box/receive";
+var BLIND_BOX_OPEN_URL = "https://cn-cbu-gateway.ninebot.com/portal/api/user-sign/v2/blind-box/open";
 
 var DEFAULT_TITLE = "Ninebot 签到";
 var DEFAULT_OPEN_URL = "https://h5-bj.ninebot.com/";
@@ -61,7 +64,12 @@ async function renderWidget(ctx) {
 async function executeCheckinFlow(ctx, config, source) {
     var cached = loadRecord(ctx);
     if (!config.forceCheckin && isSuccessfulToday(cached)) {
-        return createRecord({
+        var cachedBlindBox = shouldReuseBlindBoxResult(cached.blindBox)
+            ? normalizeBlindBoxResult(cached.blindBox)
+            : await executeBlindBoxFlow(ctx, config, {
+                receive: true
+            });
+        var cachedRecord = createRecord({
             dateKey: todayKey(),
             status: "already_signed",
             title: "今日已签到",
@@ -72,10 +80,13 @@ async function executeCheckinFlow(ctx, config, source) {
             lastError: "",
             verificationState: "local_success_cache",
             errorCategory: "",
+            blindBox: cachedBlindBox,
             raw: {
                 cachedRecord: cached
             }
         });
+        saveRecord(ctx, cachedRecord);
+        return cachedRecord;
     }
 
     var statusBefore;
@@ -99,6 +110,9 @@ async function executeCheckinFlow(ctx, config, source) {
 
     var statusData = ensureObject(statusBefore.data);
     if (toInt(statusData.currentSignStatus) === 1) {
+        var alreadyBlindBox = await executeBlindBoxFlow(ctx, config, {
+            receive: true
+        });
         var alreadyRecord = createRecord({
             dateKey: todayKey(),
             status: "already_signed",
@@ -113,6 +127,7 @@ async function executeCheckinFlow(ctx, config, source) {
             lastError: "",
             verificationState: "precheck",
             errorCategory: "",
+            blindBox: alreadyBlindBox,
             raw: {
                 statusBefore: statusBefore
             }
@@ -140,6 +155,9 @@ async function executeCheckinFlow(ctx, config, source) {
 
         var verifyData = resultOk(statusVerify) ? ensureObject(statusVerify.data) : {};
         if (resultOk(statusVerify) && toInt(verifyData.currentSignStatus) === 1) {
+            var recoveredBlindBox = await executeBlindBoxFlow(ctx, config, {
+                receive: true
+            });
             var recoveredRecord = createRecord({
                 dateKey: todayKey(),
                 status: "success",
@@ -156,6 +174,7 @@ async function executeCheckinFlow(ctx, config, source) {
                 lastError: signError ? safeMsg(signError) : extractMessage(signPayload),
                 verificationState: "post_failure_recheck",
                 errorCategory: signError ? normalizeErrorCategory(signError) : normalizeErrorCategory(signPayload),
+                blindBox: recoveredBlindBox,
                 raw: {
                     statusBefore: statusBefore,
                     sign: signPayload,
@@ -197,6 +216,9 @@ async function executeCheckinFlow(ctx, config, source) {
     }
 
     var statusAfterData = resultOk(statusAfter) ? ensureObject(statusAfter.data) : {};
+    var successBlindBox = await executeBlindBoxFlow(ctx, config, {
+        receive: true
+    });
     var successRecord = createRecord({
         dateKey: todayKey(),
         status: "success",
@@ -213,6 +235,7 @@ async function executeCheckinFlow(ctx, config, source) {
         lastError: refreshError,
         verificationState: "direct",
         errorCategory: "",
+        blindBox: successBlindBox,
         raw: {
             statusBefore: statusBefore,
             sign: signPayload,
@@ -233,6 +256,194 @@ async function postSign(ctx, config) {
     return await requestJson(ctx, "POST", SIGN_URL, {
         deviceId: config.deviceId
     }, buildHeaders(config), config.timeoutMs);
+}
+
+async function fetchBlindBoxList(ctx, config) {
+    return await requestJson(ctx, "GET", BLIND_BOX_LIST_URL, null, buildHeaders(config), config.timeoutMs);
+}
+
+async function receiveBlindBox(ctx, config) {
+    return await requestJson(ctx, "POST", BLIND_BOX_RECEIVE_URL, {}, buildHeaders(config), config.timeoutMs);
+}
+
+async function openBlindBox(ctx, config, boxId) {
+    return await requestJson(ctx, "POST", BLIND_BOX_OPEN_URL, {
+        boxId: boxId
+    }, buildHeaders(config), config.timeoutMs);
+}
+
+async function executeBlindBoxFlow(ctx, config, options) {
+    options = options || {};
+    var receiveStatus = "skipped";
+    var receiveMessage = "";
+    var receivePayload = null;
+    var receiveError = null;
+
+    if (options.receive !== false) {
+        try {
+            receivePayload = await receiveBlindBox(ctx, config);
+            if (resultOk(receivePayload)) {
+                receiveStatus = "received";
+                receiveMessage = "当日盲盒领取成功";
+            } else {
+                receiveStatus = "not_received";
+                receiveMessage = extractMessage(receivePayload) || "当日盲盒已领取或暂不可领";
+            }
+        } catch (e) {
+            receiveError = e;
+            receiveStatus = "receive_failed";
+            receiveMessage = safeMsg(e);
+        }
+    }
+
+    var listPayload = null;
+    try {
+        listPayload = await fetchBlindBoxList(ctx, config);
+    } catch (listError) {
+        return createBlindBoxResult({
+            dateKey: todayKey(),
+            status: "query_failed",
+            title: "盲盒查询失败",
+            openedToday: false,
+            checkedAt: nowIso(),
+            receiveStatus: receiveStatus,
+            receiveMessage: receiveMessage,
+            lastError: safeMsg(listError),
+            raw: {
+                receive: receivePayload,
+                receiveError: serializeFailureInput(receiveError),
+                listError: serializeFailureInput(listError)
+            }
+        });
+    }
+
+    if (!resultOk(listPayload)) {
+        return createBlindBoxResult({
+            dateKey: todayKey(),
+            status: "query_failed",
+            title: "盲盒查询失败",
+            openedToday: false,
+            checkedAt: nowIso(),
+            receiveStatus: receiveStatus,
+            receiveMessage: receiveMessage,
+            lastError: extractMessage(listPayload) || "盲盒列表接口返回失败",
+            raw: {
+                receive: receivePayload,
+                receiveError: serializeFailureInput(receiveError),
+                list: listPayload
+            }
+        });
+    }
+
+    var summary = summarizeBlindBoxList(listPayload);
+    if (!config.autoOpenBlindBox) {
+        return createBlindBoxResult({
+            dateKey: todayKey(),
+            status: "disabled",
+            title: "自动开盒已关闭",
+            openedToday: false,
+            checkedAt: nowIso(),
+            receiveStatus: receiveStatus,
+            receiveMessage: receiveMessage,
+            pendingCount: summary.pendingCount,
+            availableCount: summary.availableCount,
+            openedTotal: summary.openedTotal,
+            nextOpenDays: summary.nextOpenDays,
+            nextOpenText: summary.nextOpenText,
+            raw: {
+                receive: receivePayload,
+                receiveError: serializeFailureInput(receiveError),
+                list: listPayload
+            }
+        });
+    }
+
+    if (!summary.availableBoxes.length) {
+        return createBlindBoxResult({
+            dateKey: todayKey(),
+            status: summary.pendingCount > 0 ? "not_ready" : "no_box",
+            title: summary.pendingCount > 0 ? "盲盒暂不可开" : "暂无待开盲盒",
+            openedToday: false,
+            checkedAt: nowIso(),
+            receiveStatus: receiveStatus,
+            receiveMessage: receiveMessage,
+            pendingCount: summary.pendingCount,
+            availableCount: 0,
+            openedTotal: summary.openedTotal,
+            nextOpenDays: summary.nextOpenDays,
+            nextOpenText: summary.nextOpenText,
+            raw: {
+                receive: receivePayload,
+                receiveError: serializeFailureInput(receiveError),
+                list: listPayload
+            }
+        });
+    }
+
+    var openResults = [];
+    var openedCount = 0;
+    var rewardParts = [];
+    for (var i = 0; i < summary.availableBoxes.length; i++) {
+        var box = summary.availableBoxes[i];
+        var boxId = box && box.boxId;
+        var boxIdText = trim(boxId);
+        var awardDays = pickFirstNumber([
+            toIntOrNull(box && box.awardDays),
+            toIntOrNull(box && box.days),
+            toIntOrNull(box && box.signDays)
+        ]);
+        if (!boxIdText) {
+            openResults.push(createBlindBoxOpenResult(false, boxIdText, awardDays, "", "盲盒缺少 boxId"));
+            continue;
+        }
+
+        try {
+            var openPayload = await openBlindBox(ctx, config, boxId);
+            if (resultOk(openPayload)) {
+                var rewardText = extractBlindBoxRewardText(openPayload);
+                openedCount += 1;
+                if (rewardText) rewardParts.push(rewardText);
+                openResults.push(createBlindBoxOpenResult(true, boxIdText, awardDays, rewardText, "开启成功"));
+            } else {
+                openResults.push(createBlindBoxOpenResult(false, boxIdText, awardDays, "", extractMessage(openPayload) || "开启失败"));
+            }
+        } catch (openError) {
+            openResults.push(createBlindBoxOpenResult(false, boxIdText, awardDays, "", safeMsg(openError)));
+        }
+
+        if (summary.availableBoxes.length > 1 && i < summary.availableBoxes.length - 1) {
+            await delay(300);
+        }
+    }
+
+    var finalSummary = summary;
+    try {
+        var refreshedList = await fetchBlindBoxList(ctx, config);
+        if (resultOk(refreshedList)) finalSummary = summarizeBlindBoxList(refreshedList);
+    } catch (_) {}
+
+    return createBlindBoxResult({
+        dateKey: todayKey(),
+        status: openedCount > 0 ? "opened" : "open_failed",
+        title: openedCount > 0 ? "盲盒开启成功" : "盲盒开启失败",
+        openedToday: openedCount > 0,
+        openedCount: openedCount,
+        checkedAt: nowIso(),
+        receiveStatus: receiveStatus,
+        receiveMessage: receiveMessage,
+        pendingCount: finalSummary.pendingCount,
+        availableCount: finalSummary.availableCount,
+        openedTotal: finalSummary.openedTotal,
+        nextOpenDays: finalSummary.nextOpenDays,
+        nextOpenText: finalSummary.nextOpenText,
+        rewardText: rewardParts.join("、"),
+        openResults: openResults,
+        raw: {
+            receive: receivePayload,
+            receiveError: serializeFailureInput(receiveError),
+            list: listPayload
+        }
+    });
 }
 
 async function requestJson(ctx, method, url, body, headers, timeoutMs) {
@@ -330,6 +541,7 @@ function readConfig(ctx) {
         notifyOnSuccess: readBool(env.NOTIFY_ON_SUCCESS, true),
         notifyOnFailure: readBool(env.NOTIFY_ON_FAILURE, true),
         forceCheckin: isTrue(env.FORCE_CHECKIN),
+        autoOpenBlindBox: readBool(trim(env.AUTO_OPEN_BOX) || trim(env.AUTO_OPEN_BLIND_BOX), true),
         dailyCronText: trim(env.DAILY_CRON_TEXT) || DEFAULT_DAILY_CRON
     };
 }
@@ -355,6 +567,9 @@ function buildHeaders(config) {
         Referer: "https://h5-bj.ninebot.com/",
         from_platform_1: "1",
         language: config.language,
+        platform: "h5",
+        aid: "10000004",
+        sys_language: "zh-CN",
         device_id: config.deviceId,
         deviceId: config.deviceId,
         "User-Agent": config.userAgent
@@ -406,20 +621,20 @@ function buildNotifyText(record) {
     if (record.status === "success") {
         if (record.verificationState === "post_failure_recheck") {
             return {
-                subtitle: "本次签到已确认成功",
-                body: record.message || "接口响应异常，但状态复查确认今日已签到"
+                subtitle: "本次签到已确认成功" + buildBlindBoxNotifySubtitle(record),
+                body: appendBlindBoxNotifyBody(record.message || "接口响应异常，但状态复查确认今日已签到", record)
             };
         }
         return {
-            subtitle: "本次签到成功",
-            body: record.message || buildStreakNotifyText(record)
+            subtitle: "本次签到成功" + buildBlindBoxNotifySubtitle(record),
+            body: appendBlindBoxNotifyBody(record.message || buildStreakNotifyText(record), record)
         };
     }
 
     if (record.status === "already_signed") {
         return {
-            subtitle: "今日已签到",
-            body: record.message || "本次执行未重复提交签到请求"
+            subtitle: "今日已签到" + buildBlindBoxNotifySubtitle(record),
+            body: appendBlindBoxNotifyBody(record.message || "本次执行未重复提交签到请求", record)
         };
     }
 
@@ -446,8 +661,24 @@ function buildNotifyText(record) {
 
     return {
         subtitle: record.title || statusText(record.status),
-        body: record.message || "Ninebot 签到任务已执行"
+        body: appendBlindBoxNotifyBody(record.message || "Ninebot 签到任务已执行", record)
     };
+}
+
+function buildBlindBoxNotifySubtitle(record) {
+    var box = normalizeBlindBoxResult(record && record.blindBox);
+    if (!box || box.dateKey !== todayKey()) return " · 盲盒未查询";
+    if (box.openedToday) return " · 盲盒已开";
+    if (box.status === "not_ready" || box.status === "no_box") return " · 盲盒未开";
+    if (box.status === "open_failed" || box.status === "query_failed") return " · 盲盒异常";
+    if (box.status === "disabled") return " · 盲盒未开";
+    return " · 盲盒未知";
+}
+
+function appendBlindBoxNotifyBody(body, record) {
+    var box = normalizeBlindBoxResult(record && record.blindBox);
+    if (!box || box.dateKey !== todayKey()) return body + "\n盲盒：今日未查询";
+    return body + "\n盲盒：" + buildBlindBoxResultMessage(box);
 }
 
 function buildStreakNotifyText(record) {
@@ -519,8 +750,127 @@ function createRecord(input) {
         lastError: trim(data.lastError),
         verificationState: trim(data.verificationState) || "direct",
         errorCategory: trim(data.errorCategory),
+        blindBox: normalizeBlindBoxResult(data.blindBox),
         raw: data.raw || null
     };
+}
+
+function createBlindBoxResult(input) {
+    var result = normalizeBlindBoxResult(input) || normalizeBlindBoxResult({
+        status: "unknown",
+        title: "盲盒状态未知",
+        openedToday: false
+    });
+    if (!result.message) {
+        result.message = buildBlindBoxResultMessage(result);
+    }
+    return result;
+}
+
+function normalizeBlindBoxResult(input) {
+    var data = ensureObject(input);
+    if (!Object.keys(data).length) return null;
+
+    var openResults = [];
+    if (Array.isArray(data.openResults)) {
+        for (var i = 0; i < data.openResults.length; i++) {
+            var item = ensureObject(data.openResults[i]);
+            openResults.push({
+                success: !!item.success,
+                boxId: trim(item.boxId),
+                awardDays: toIntOrNull(item.awardDays),
+                rewardText: trim(item.rewardText),
+                message: trim(item.message)
+            });
+        }
+    }
+
+    return {
+        dateKey: trim(data.dateKey) || todayKey(),
+        status: trim(data.status) || "unknown",
+        title: trim(data.title) || "盲盒状态",
+        message: trim(data.message),
+        openedToday: !!data.openedToday,
+        openedCount: toIntOrNull(data.openedCount) || 0,
+        pendingCount: toIntOrNull(data.pendingCount),
+        availableCount: toIntOrNull(data.availableCount),
+        openedTotal: toIntOrNull(data.openedTotal),
+        nextOpenDays: toIntOrNull(data.nextOpenDays),
+        nextOpenText: trim(data.nextOpenText),
+        rewardText: trim(data.rewardText),
+        checkedAt: trim(data.checkedAt) || nowIso(),
+        receiveStatus: trim(data.receiveStatus),
+        receiveMessage: trim(data.receiveMessage),
+        lastError: trim(data.lastError),
+        openResults: openResults,
+        raw: data.raw || null
+    };
+}
+
+function createBlindBoxOpenResult(success, boxId, awardDays, rewardText, message) {
+    return {
+        success: !!success,
+        boxId: trim(boxId),
+        awardDays: toIntOrNull(awardDays),
+        rewardText: trim(rewardText),
+        message: trim(message)
+    };
+}
+
+function summarizeBlindBoxList(payload) {
+    var data = ensureObject(payload && payload.data);
+    var notOpened = Array.isArray(data.notOpenedBoxes) ? data.notOpenedBoxes : [];
+    var opened = Array.isArray(data.openedBoxes) ? data.openedBoxes : [];
+    var available = [];
+    var waitDays = [];
+
+    for (var i = 0; i < notOpened.length; i++) {
+        var box = ensureObject(notOpened[i]);
+        var waitDay = pickFirstNumber([
+            toIntOrNull(box.waitDay),
+            toIntOrNull(box.leftDaysToOpen),
+            toIntOrNull(box.waitDays)
+        ]);
+        if (waitDay == null) waitDay = 0;
+        if (waitDay === 0) {
+            available.push(box);
+        } else if (waitDay > 0) {
+            waitDays.push(waitDay);
+        }
+    }
+
+    var nextOpenDays = null;
+    for (var j = 0; j < waitDays.length; j++) {
+        if (nextOpenDays == null || waitDays[j] < nextOpenDays) {
+            nextOpenDays = waitDays[j];
+        }
+    }
+
+    return {
+        notOpenedBoxes: notOpened,
+        openedBoxes: opened,
+        availableBoxes: available,
+        pendingCount: notOpened.length,
+        availableCount: available.length,
+        openedTotal: opened.length,
+        nextOpenDays: nextOpenDays,
+        nextOpenText: formatBlindBoxNextOpenText(nextOpenDays, notOpened.length, available.length)
+    };
+}
+
+function formatBlindBoxNextOpenText(days, pendingCount, availableCount) {
+    if (availableCount > 0) return "已有盲盒可开";
+    if (days == null) return pendingCount > 0 ? "等待盲盒解锁" : "暂无待开盲盒";
+    if (days <= 0) return "已有盲盒可开";
+    return days + "天后可开";
+}
+
+function shouldReuseBlindBoxResult(input) {
+    var result = normalizeBlindBoxResult(input);
+    if (!result || result.dateKey !== todayKey()) return false;
+    if (result.receiveStatus === "receive_failed") return false;
+    if (result.openedToday) return true;
+    return result.status === "not_ready" || result.status === "no_box";
 }
 
 function createHistoryEntry(input) {
@@ -728,6 +1078,7 @@ function buildViewModel(record, config, history) {
     var isToday = record && record.dateKey === currentKey;
     var scheduleInfo = resolveScheduleInfo(config.dailyCronText);
     var historyText = buildHistorySummary(history);
+    var blindBox = normalizeBlindBoxResult(record && record.blindBox);
     var primary = "等待签到";
     var secondary = record.message || (scheduleInfo.nextRunText !== "未知"
         ? ("下次执行：" + scheduleInfo.nextRunDetailText)
@@ -808,6 +1159,10 @@ function buildViewModel(record, config, history) {
         historyText: historyText,
         historySummaryText: buildHistoryCaptionText(historyText),
         historyDetailText: buildHistoryDetailText(historyText),
+        blindBox: blindBox,
+        blindBoxText: buildBlindBoxWidgetText(blindBox, isToday, false),
+        blindBoxCompactText: buildBlindBoxWidgetText(blindBox, isToday, true),
+        blindBoxInlineText: buildBlindBoxInlineStatus(blindBox, isToday),
         verificationState: record.verificationState
     };
 }
@@ -845,7 +1200,7 @@ function buildCircular(vm) {
             spacer(4),
             text(resolveCompactStatus(vm), 12, "bold", vm.theme.text, { shadowColor: vm.theme.titleShadow, shadowRadius: 6 }),
             spacer(2),
-            text(compactStreak(vm.streakText), 10, "medium", vm.theme.muted)
+            text(resolveCircularMeta(vm), 10, "medium", vm.theme.muted)
         ]),
         spacer()
     ], vm, [12, 12, 12, 12]);
@@ -861,7 +1216,7 @@ function buildRectangular(vm) {
         spacer(4),
         infoRow("结果", vm.secondary, vm.theme, { maxLines: 2 }),
         spacer(4),
-        infoRow("下次", vm.nextRunCompactText, vm.theme, { maxLines: 1 })
+        infoRow("盲盒", vm.blindBoxCompactText, vm.theme, { maxLines: 1 })
     ], vm, [12, 12, 12, 12]);
 }
 
@@ -911,7 +1266,7 @@ function buildMedium(vm) {
             minScale: 0.8
         }),
         spacer(3),
-        infoRow("最近", vm.updatedText, vm.theme, {
+        infoRow("盲盒", vm.blindBoxText, vm.theme, {
             labelWidth: 32,
             valueSize: 11,
             maxLines: 1,
@@ -938,6 +1293,8 @@ function buildLarge(vm) {
         infoRow("状态", vm.primary, vm.theme, { valueColor: vm.statusColor, valueWeight: "bold", maxLines: 1 }),
         spacer(6),
         infoRow("结果", vm.secondary, vm.theme, { maxLines: 4 }),
+        spacer(6),
+        infoRow("盲盒", vm.blindBoxText, vm.theme, { maxLines: 2 }),
         spacer(6),
         infoRow("连签", vm.streakText, vm.theme, { maxLines: 1 }),
         spacer(6),
@@ -980,6 +1337,9 @@ function footer(vm) {
 
 function buildSmallMetaText(vm) {
     var streak = compactStreak(vm.streakText);
+    if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) {
+        return vm.blindBoxCompactText || "盲盒未查";
+    }
     if ((vm.status === "success" || vm.status === "already_signed" || vm.status === "not_signed") && streak !== "连签 --") {
         return streak;
     }
@@ -1007,6 +1367,9 @@ function buildMediumFooterText(vm) {
 
 function buildCompactFooterText(vm, family) {
     if (family === "small") {
+        if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) {
+            return compactStreak(vm.streakText);
+        }
         if (vm.status === "auth_expired") {
             return "需更新授权";
         }
@@ -1225,7 +1588,7 @@ function buildInlineText(vm) {
         return clipText(vm.title + " 未签到 · 可重试", 28);
     }
     if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) {
-        return clipText(vm.title + " 已签到 · " + compactStreak(vm.streakText), 28);
+        return clipText(vm.title + " 已签到 · " + vm.blindBoxInlineText, 28);
     }
     return clipText(vm.title + " 下次 " + buildShortNextRunText(vm.nextRunText), 28);
 }
@@ -1289,6 +1652,48 @@ function buildSuccessMessage(signPayload, statusAfterData, refreshError) {
     return parts.join(" · ");
 }
 
+function buildBlindBoxResultMessage(blindBox) {
+    var box = normalizeBlindBoxResult(blindBox);
+    if (!box) return "今日盲盒未查询";
+
+    var nextText = box.nextOpenText || formatBlindBoxNextOpenText(box.nextOpenDays, box.pendingCount || 0, box.availableCount || 0);
+    if (box.status === "opened" || box.openedToday) {
+        var reward = box.rewardText ? ("：" + box.rewardText) : "";
+        var countText = box.openedCount > 1 ? (" " + box.openedCount + " 个") : "";
+        var suffix = nextText && nextText !== "暂无待开盲盒" ? ("，" + nextText) : "";
+        return "今日盲盒已成功开启" + countText + reward + suffix;
+    }
+    if (box.status === "not_ready") {
+        return "今日盲盒未开启，待开 " + safeCount(box.pendingCount) + " 个，" + nextText;
+    }
+    if (box.status === "no_box") {
+        return "今日盲盒未开启，暂无待开盲盒";
+    }
+    if (box.status === "disabled") {
+        if (box.availableCount > 0) return "今日盲盒未开启，有 " + box.availableCount + " 个可开，自动开盒已关闭";
+        return "今日盲盒未开启，自动开盒已关闭，" + nextText;
+    }
+    if (box.status === "open_failed") {
+        return "今日盲盒未成功开启：" + summarizeBlindBoxOpenFailures(box);
+    }
+    if (box.status === "query_failed") {
+        return "今日盲盒未开启，查询失败：" + (box.lastError || "未知错误");
+    }
+    return box.message || "今日盲盒状态未知";
+}
+
+function summarizeBlindBoxOpenFailures(blindBox) {
+    var box = normalizeBlindBoxResult(blindBox);
+    if (!box || !box.openResults.length) return "未知错误";
+    var parts = [];
+    for (var i = 0; i < box.openResults.length; i++) {
+        if (!box.openResults[i].success) {
+            parts.push(box.openResults[i].message || "开启失败");
+        }
+    }
+    return clipText(parts.join("；") || "开启失败", 42);
+}
+
 function extractRewardText(payload) {
     var data = ensureObject(payload && payload.data);
     var candidates = [
@@ -1313,12 +1718,84 @@ function extractRewardText(payload) {
     return "";
 }
 
+function extractBlindBoxRewardText(payload) {
+    var data = ensureObject(payload && payload.data);
+    if (Array.isArray(data.rewardList) && data.rewardList.length) {
+        var parts = [];
+        for (var i = 0; i < data.rewardList.length; i++) {
+            var item = ensureObject(data.rewardList[i]);
+            var itemText = formatBlindBoxReward(item.rewardType, item.rewardValue);
+            if (itemText) parts.push(itemText);
+        }
+        if (parts.length) return parts.join("、");
+    }
+
+    var direct = formatBlindBoxReward(data.rewardType, data.rewardValue);
+    if (direct) return direct;
+
+    var candidates = [
+        trim(data.rewardDesc),
+        trim(data.rewardName),
+        trim(data.reward),
+        trim(data.awardDesc),
+        trim(data.prizeName)
+    ];
+    for (var j = 0; j < candidates.length; j++) {
+        if (candidates[j]) return candidates[j];
+    }
+    return "";
+}
+
+function formatBlindBoxReward(type, value) {
+    if (value == null || value === "") return "";
+    var rewardType = toIntOrNull(type);
+    var unit = rewardType === 1 ? "经验" : rewardType === 2 ? "N币" : "奖励";
+    return "+" + value + unit;
+}
+
 function resolveCompactStatus(vm) {
     if (vm.status === "auth_expired") return "过期";
     if (vm.status === "failed") return "失败";
     if (vm.status === "not_signed") return "未签";
     if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) return "已签";
     return "等待";
+}
+
+function resolveCircularMeta(vm) {
+    if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) {
+        return clipText(vm.blindBoxInlineText || "盒未查", 10);
+    }
+    return compactStreak(vm.streakText);
+}
+
+function buildBlindBoxWidgetText(blindBox, isToday, compact) {
+    var box = normalizeBlindBoxResult(blindBox);
+    if (!box || !isToday) return compact ? "盲盒未查" : "今日盲盒未查询";
+    if (box.openedToday) {
+        var reward = box.rewardText ? (" " + box.rewardText) : "";
+        return compact ? clipText("已开" + reward, 12) : buildBlindBoxResultMessage(box);
+    }
+    if (box.status === "not_ready") {
+        var next = box.nextOpenText || formatBlindBoxNextOpenText(box.nextOpenDays, box.pendingCount || 0, 0);
+        return compact ? clipText(next, 12) : buildBlindBoxResultMessage(box);
+    }
+    if (box.status === "no_box") return compact ? "暂无待开" : buildBlindBoxResultMessage(box);
+    if (box.status === "open_failed") return compact ? "开盒失败" : buildBlindBoxResultMessage(box);
+    if (box.status === "query_failed") return compact ? "查询失败" : buildBlindBoxResultMessage(box);
+    if (box.status === "disabled") return compact ? "开盒关闭" : buildBlindBoxResultMessage(box);
+    return compact ? "盲盒未知" : buildBlindBoxResultMessage(box);
+}
+
+function buildBlindBoxInlineStatus(blindBox, isToday) {
+    var box = normalizeBlindBoxResult(blindBox);
+    if (!box || !isToday) return "盒未查";
+    if (box.openedToday) return "盒已开";
+    if (box.status === "not_ready") return box.nextOpenText || "盒待开";
+    if (box.status === "no_box") return "无待开";
+    if (box.status === "open_failed") return "盒失败";
+    if (box.status === "query_failed") return "盒异常";
+    if (box.status === "disabled") return "盒关闭";
+    return "盒未知";
 }
 
 function resultOk(payload) {
@@ -1549,6 +2026,11 @@ function clipText(value, maxLength) {
     var textValue = String(value == null ? "" : value);
     if (textValue.length <= maxLength) return textValue;
     return textValue.slice(0, Math.max(0, maxLength - 1)) + "…";
+}
+
+function safeCount(value) {
+    var num = toIntOrNull(value);
+    return num == null ? 0 : num;
 }
 
 function timeValue(value) {
