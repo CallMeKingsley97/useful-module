@@ -14,6 +14,14 @@ var DEFAULT_REFRESH_MINUTES = 30;
 var DEFAULT_ACCENT_COLOR = "#34D399";
 var DEFAULT_USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Segway v6 C 609033420";
 var DEFAULT_DAILY_CRON = "0 */2 * * *";
+var STATUS_COLORS = {
+    success: "#34D399",
+    waiting: "#60A5FA",
+    pending: "#FBBF24",
+    notSigned: "#FBBF24",
+    failed: "#FB923C",
+    authExpired: "#F87171"
+};
 
 export default async function (ctx) {
     var scriptName = trim(ctx && ctx.script && ctx.script.name);
@@ -1083,26 +1091,26 @@ function buildViewModel(record, config, history) {
     var secondary = record.message || (scheduleInfo.nextRunText !== "未知"
         ? ("下次执行：" + scheduleInfo.nextRunDetailText)
         : "等待自动执行签到");
-    var statusColor = "#FBBF24";
+    var statusColor = STATUS_COLORS.pending;
     var symbol = "sf-symbol:clock.badge.questionmark.fill";
     var footerText = scheduleInfo.nextRunText !== "未知" ? ("下次 " + scheduleInfo.nextRunText) : "等待自动签到";
 
     if (record.status === "success" || record.status === "already_signed") {
         primary = "今日已签到";
         secondary = record.message || buildAlreadySignedMessage(record);
-        statusColor = config.accentColor;
+        statusColor = config.accentColor || STATUS_COLORS.success;
         symbol = "sf-symbol:checkmark.seal.fill";
         footerText = scheduleInfo.nextRunText !== "未知" ? ("下次 " + scheduleInfo.nextRunText) : "今日签到结果已写入缓存";
     } else if (record.status === "auth_expired") {
         primary = "授权失效";
         secondary = record.message || "Authorization 可能已过期，需要重新抓包更新";
-        statusColor = "#F87171";
+        statusColor = STATUS_COLORS.authExpired;
         symbol = "sf-symbol:lock.fill";
         footerText = "更新授权后可重新执行";
     } else if (record.status === "failed") {
         primary = isToday ? "签到失败" : "上次签到失败";
         secondary = record.message || record.lastError || "未知错误";
-        statusColor = "#FB923C";
+        statusColor = STATUS_COLORS.failed;
         symbol = "sf-symbol:exclamationmark.triangle.fill";
         footerText = scheduleInfo.nextRunText !== "未知"
             ? ("可重新执行，或等待 " + scheduleInfo.nextRunText)
@@ -1110,7 +1118,7 @@ function buildViewModel(record, config, history) {
     } else if (record.status === "not_signed") {
         primary = "今日未签到";
         secondary = record.message || "服务器显示今日尚未签到";
-        statusColor = "#FBBF24";
+        statusColor = STATUS_COLORS.notSigned;
         symbol = "sf-symbol:xmark.seal.fill";
         footerText = scheduleInfo.nextRunText !== "未知"
             ? ("可重新执行，或等待 " + scheduleInfo.nextRunText)
@@ -1120,7 +1128,7 @@ function buildViewModel(record, config, history) {
         secondary = record.checkedAt
             ? "上次：" + formatMonthDayTime(record.checkedAt) + " · " + (record.title || statusText(record.status))
             : (scheduleInfo.nextRunText !== "未知" ? ("下次执行：" + scheduleInfo.nextRunDetailText) : "等待自动执行签到");
-        statusColor = "#60A5FA";
+        statusColor = STATUS_COLORS.waiting;
         symbol = "sf-symbol:clock.fill";
         footerText = scheduleInfo.nextRunText !== "未知" ? ("下次 " + scheduleInfo.nextRunText) : "等待自动签到";
     }
@@ -1130,7 +1138,7 @@ function buildViewModel(record, config, history) {
         secondary = record.checkedAt
             ? "上次：" + formatMonthDayTime(record.checkedAt) + " · 已签到"
             : (scheduleInfo.nextRunText !== "未知" ? ("下次执行：" + scheduleInfo.nextRunDetailText) : "等待自动执行签到");
-        statusColor = "#60A5FA";
+        statusColor = STATUS_COLORS.waiting;
         symbol = "sf-symbol:clock.fill";
         footerText = scheduleInfo.nextRunText !== "未知" ? ("下次 " + scheduleInfo.nextRunText) : "等待自动签到";
     }
@@ -1163,6 +1171,10 @@ function buildViewModel(record, config, history) {
         blindBoxText: buildBlindBoxWidgetText(blindBox, isToday, false),
         blindBoxCompactText: buildBlindBoxWidgetText(blindBox, isToday, true),
         blindBoxInlineText: buildBlindBoxInlineStatus(blindBox, isToday),
+        statusSummaryText: buildStatusSummaryText(record, scheduleInfo, blindBox, isToday),
+        compactResultText: buildCompactResultText(record, blindBox, isToday),
+        compactActionText: buildCompactActionText(record, scheduleInfo, blindBox, isToday),
+        mediumMetaText: buildMediumMetaText(record, scheduleInfo, historyText, blindBox, isToday),
         verificationState: record.verificationState
     };
 }
@@ -1225,13 +1237,13 @@ function buildSmall(vm) {
         text(vm.title, 12, "bold", vm.theme.text, { maxLines: 1, minScale: 0.78, shadowColor: vm.theme.titleShadow, shadowRadius: 5 }),
         spacer(6),
         row([
-            image(vm.symbol, 15, vm.statusColor, { shadowColor: vm.theme.iconGlow, shadowRadius: 6 }),
-            text(vm.primary, 13, "bold", vm.statusColor, { flex: 1, maxLines: 1, minScale: 0.78, shadowColor: vm.theme.titleShadow, shadowRadius: 4 })
+            image(vm.symbol, 16, vm.statusColor, { shadowColor: vm.theme.iconGlow, shadowRadius: 6 }),
+            text(resolveCompactStatus(vm), 16, "bold", vm.statusColor, { flex: 1, maxLines: 1, minScale: 0.78, shadowColor: vm.theme.titleShadow, shadowRadius: 4 })
         ], { alignItems: "center", gap: 6 }),
-        spacer(6),
-        text(compactSecondary(vm, 34), 11, "medium", vm.theme.text, { maxLines: 2, minScale: 0.78 }),
-        spacer(6),
-        text(buildSmallMetaText(vm), 10, "medium", vm.theme.muted, { maxLines: 1, minScale: 0.8 }),
+        spacer(8),
+        text(vm.compactResultText, 11, "semibold", vm.theme.text, { maxLines: 1, minScale: 0.76 }),
+        spacer(4),
+        text(vm.compactActionText, 10, "medium", vm.theme.muted, { maxLines: 1, minScale: 0.78 }),
         spacer(),
         text(buildCompactFooterText(vm, "small"), 10, "medium", vm.theme.footer, { maxLines: 1, minScale: 0.78 })
     ], vm, [12, 12, 12, 12]);
@@ -1239,40 +1251,38 @@ function buildSmall(vm) {
 
 function buildMedium(vm) {
     return shell([
-        text(vm.title, 15, "bold", vm.theme.text, { maxLines: 1, minScale: 0.78, shadowColor: vm.theme.titleShadow, shadowRadius: 6 }),
+        row([
+            text(vm.title, 14, "bold", vm.theme.text, { flex: 1, maxLines: 1, minScale: 0.78, shadowColor: vm.theme.titleShadow, shadowRadius: 6 }),
+            image(vm.symbol, 18, vm.statusColor, { shadowColor: vm.theme.iconGlow, shadowRadius: 6 })
+        ], { alignItems: "center", gap: 8 }),
+        spacer(7),
+        text(vm.primary, 18, "bold", vm.statusColor, {
+            maxLines: 1,
+            minScale: 0.74,
+            shadowColor: vm.theme.titleShadow,
+            shadowRadius: 6
+        }),
         spacer(4),
+        text(vm.statusSummaryText, 11, "medium", vm.theme.text, { maxLines: 1, minScale: 0.78 }),
+        spacer(8),
         separator(vm.theme),
-        spacer(6),
-        infoRow("状态", vm.primary, vm.theme, {
+        spacer(7),
+        infoRow("盲盒", vm.blindBoxCompactText, vm.theme, {
             labelWidth: 32,
             valueColor: vm.statusColor,
-            valueWeight: "bold",
-            valueSize: 13,
+            valueWeight: "semibold",
+            valueSize: 12,
             maxLines: 1,
-            minScale: 0.76
+            minScale: 0.8
         }),
-        spacer(3),
-        infoRow("结果", compactSecondary(vm, 48), vm.theme, {
-            labelWidth: 32,
-            valueSize: 11,
-            maxLines: 2,
-            minScale: 0.78
-        }),
-        spacer(3),
+        spacer(4),
         infoRow("连签", compactStreak(vm.streakText), vm.theme, {
             labelWidth: 32,
             valueSize: 11,
             maxLines: 1,
             minScale: 0.8
         }),
-        spacer(3),
-        infoRow("盲盒", vm.blindBoxText, vm.theme, {
-            labelWidth: 32,
-            valueSize: 11,
-            maxLines: 1,
-            minScale: 0.82
-        }),
-        spacer(3),
+        spacer(4),
         infoRow("下次", vm.nextRunCompactText, vm.theme, {
             labelWidth: 32,
             valueSize: 11,
@@ -1280,7 +1290,7 @@ function buildMedium(vm) {
             minScale: 0.8
         }),
         spacer(),
-        text(buildMediumFooterText(vm), 10, "medium", vm.theme.footer, { maxLines: 1, minScale: 0.72 })
+        text(vm.mediumMetaText, 10, "medium", vm.theme.footer, { maxLines: 1, minScale: 0.72 })
     ], vm, [14, 14, 14, 14]);
 }
 
@@ -1335,40 +1345,10 @@ function footer(vm) {
     ], { alignItems: "center", gap: 8 });
 }
 
-function buildSmallMetaText(vm) {
-    var streak = compactStreak(vm.streakText);
-    if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) {
-        return vm.blindBoxCompactText || "盲盒未查";
-    }
-    if ((vm.status === "success" || vm.status === "already_signed" || vm.status === "not_signed") && streak !== "连签 --") {
-        return streak;
-    }
-    if (vm.status === "success" && vm.verificationState === "post_failure_recheck") {
-        return "复查确认";
-    }
-    if (vm.status === "auth_expired") {
-        return "更新授权";
-    }
-    return vm.updatedText;
-}
-
-function buildMediumFooterText(vm) {
-    var parts = [];
-    if (vm.historySummaryText) {
-        parts.push(vm.historySummaryText);
-    }
-    if (vm.status === "auth_expired") {
-        parts.push("更新授权后重试");
-    } else if (vm.status === "success" && vm.verificationState === "post_failure_recheck") {
-        parts.push("复查确认成功");
-    }
-    return clipText(parts.join(" · "), 34);
-}
-
 function buildCompactFooterText(vm, family) {
     if (family === "small") {
         if (vm.isToday && (vm.status === "success" || vm.status === "already_signed")) {
-            return compactStreak(vm.streakText);
+            return vm.nextRunShortText && vm.nextRunShortText !== "待定" ? ("下次 " + vm.nextRunShortText) : compactStreak(vm.streakText);
         }
         if (vm.status === "auth_expired") {
             return "需更新授权";
@@ -1399,14 +1379,93 @@ function buildCompactFooterText(vm, family) {
     return "等待自动签到";
 }
 
-function compactSecondary(vm, maxLength) {
-    var value = trim(vm && vm.secondary);
-    if (!value) return "--";
-    value = value
+function buildStatusSummaryText(record, scheduleInfo, blindBox, isToday) {
+    var status = record && record.status;
+    if ((status === "success" || status === "already_signed") && isToday) {
+        return joinCompactParts([formatStreakDays(record && record.consecutiveDays), buildBlindBoxInlineStatus(blindBox, isToday)], " · ") || "今日已签";
+    }
+    if (status === "auth_expired") {
+        return "更新 Authorization 后重试";
+    }
+    if (status === "failed") {
+        return clipText(shortenWidgetMessage(record.message || record.lastError || "稍后可重试"), 36);
+    }
+    if (status === "not_signed") {
+        return "服务器显示未签，可重新执行";
+    }
+    return scheduleInfo.nextRunText !== "未知"
+        ? ("下次 " + buildNextRunCompactText(scheduleInfo.nextRunText, scheduleInfo.countdownText))
+        : "等待自动执行";
+}
+
+function buildCompactResultText(record, blindBox, isToday) {
+    var status = record && record.status;
+    if ((status === "success" || status === "already_signed") && isToday) {
+        return buildBlindBoxInlineStatus(blindBox, isToday) || formatStreakDays(record && record.consecutiveDays) || "今日已签";
+    }
+    if (status === "auth_expired") return "授权过期";
+    if (status === "failed") return "签到失败";
+    if (status === "not_signed") return "今日未签";
+    return "等待执行";
+}
+
+function buildCompactActionText(record, scheduleInfo, blindBox, isToday) {
+    var status = record && record.status;
+    if ((status === "success" || status === "already_signed") && isToday) {
+        return formatStreakDays(record && record.consecutiveDays) || "结果已缓存";
+    }
+    if (status === "auth_expired") return "更新授权后重试";
+    if (status === "failed") return "可重试";
+    if (status === "not_signed") return "可补签";
+    var nextRunShortText = buildShortNextRunText(scheduleInfo.nextRunText);
+    return nextRunShortText !== "待定" ? ("下次 " + nextRunShortText) : "待自动签到";
+}
+
+function buildMediumMetaText(record, scheduleInfo, historyText, blindBox, isToday) {
+    var parts = [];
+    var status = record && record.status;
+    if (hasHistoryMarks(historyText)) {
+        parts.push("近7天 " + historyText);
+    }
+    if (status === "auth_expired") {
+        parts.push("需更新授权");
+    } else if (status === "failed") {
+        parts.push("可重试");
+    } else if (status === "not_signed") {
+        parts.push("可补签");
+    } else if ((status === "success" || status === "already_signed") && isToday) {
+        parts.push(buildBlindBoxInlineStatus(blindBox, isToday));
+    } else if (scheduleInfo.countdownText) {
+        parts.push(scheduleInfo.countdownText);
+    }
+    return clipText(joinCompactParts(parts, " · ") || "等待自动签到", 34);
+}
+
+function formatStreakDays(days) {
+    return days ? ("连签 " + days + " 天") : "";
+}
+
+function joinCompactParts(parts, separator) {
+    var compact = [];
+    for (var i = 0; i < parts.length; i++) {
+        var value = trim(parts[i]);
+        if (value) compact.push(value);
+    }
+    return compact.join(separator || " · ");
+}
+
+function shortenWidgetMessage(value) {
+    return trim(value)
+        .replace(/^服务器显示今日已签到，连续\s*/, "连签 ")
+        .replace(/^服务器显示今日已完成签到$/, "今日已签")
+        .replace(/^服务器显示今日尚未签到$/, "今日未签")
+        .replace(/^服务器显示今日未签到，当前连签记录\s*/, "未签 · 连签 ")
+        .replace(/^Authorization 可能已过期，需要重新抓包更新$/, "授权过期，需更新")
+        .replace(/^今日盲盒已成功开启/, "盲盒已开")
+        .replace(/^今日盲盒未开启，/, "")
         .replace(/^服务器显示/, "")
         .replace(/^下次执行：/, "下次 ")
         .replace(/^状态刷新提示：/, "刷新提示：");
-    return clipText(value, maxLength || 40);
 }
 
 function buildShortNextRunText(value) {

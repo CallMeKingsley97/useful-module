@@ -61,6 +61,9 @@ scriptings:
     timeout: 30
     update_interval: 86400
     env:
+      TITLE: "Ninebot 签到"
+      ACCENT_COLOR: "#34D399"
+      REFRESH_MINUTES: "30"
       DAILY_CRON_TEXT: "0 */2 * * *"
 
 - generic:
@@ -69,6 +72,9 @@ scriptings:
     timeout: 30
     update_interval: 86400
     env:
+      TITLE: "Ninebot 签到"
+      ACCENT_COLOR: "#34D399"
+      REFRESH_MINUTES: "30"
       DAILY_CRON_TEXT: "0 */2 * * *"
 
 widgets:
