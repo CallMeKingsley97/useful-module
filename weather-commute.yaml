@@ -39,6 +39,10 @@ scriptings:
     name: weather-commute
     script_url: https://raw.githubusercontent.com/CallMeKingsley97/useful-module/refs/heads/main/modules/weather-commute.js
     timeout: 30
+    env:
+      TITLE: "天气通勤舒适度"
+      ACCENT_COLOR: "#60A5FA"
+      REFRESH_MINUTES: "30"
 
 widgets:
 - name: 天气通勤舒适度
